@@ -1,0 +1,6 @@
+{
+  "name": "HH Mineral Water",
+  "description": "Premium mineral water e-commerce app with custom bottle design orders, real-time Firestore synchronization, WhatsApp order notifications to 8017341130, and owner admin panel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
