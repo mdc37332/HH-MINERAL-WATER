@@ -2254,8 +2254,8 @@ export const AdminPanel: React.FC = () => {
                       <span className="text-amber-800 font-extrabold">₹{prod.customDesignPrice || prod.price * 2}/bottle</span>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-amber-700/90">
-                      <span>Custom Min Order:</span>
-                      <span className="font-bold text-black bg-white/80 px-1.5 py-0.2 rounded border border-amber-300">600 Pieces</span>
+                      <span>Custom Quantity:</span>
+                      <span className="font-bold text-black bg-white/80 px-1.5 py-0.2 rounded border border-amber-300">1 to Unlimited</span>
                     </div>
                   </div>
 

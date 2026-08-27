@@ -176,10 +176,11 @@ export const CartDrawer: React.FC = () => {
                                 <button
                                   onClick={() => {
                                     if (isCustom) {
-                                      if (item.quantity <= 600) {
+                                      if (item.quantity <= 1) {
                                         removeFromCart(item.cartItemId);
                                       } else {
-                                        updateCartItemQty(item.cartItemId, -50);
+                                        const step = item.quantity > 50 ? 50 : item.quantity > 10 ? 10 : 1;
+                                        updateCartItemQty(item.cartItemId, -step);
                                       }
                                     } else {
                                       if (item.quantity <= 12) {
@@ -190,7 +191,7 @@ export const CartDrawer: React.FC = () => {
                                     }
                                   }}
                                   className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
-                                  title={isCustom ? "Reduce 50 bottles" : "Reduce 12 bottles (1 pack)"}
+                                  title={isCustom ? "Reduce quantity" : "Reduce 12 bottles (1 pack)"}
                                 >
                                   <Minus className="w-2.5 h-2.5" />
                                 </button>
@@ -198,16 +199,19 @@ export const CartDrawer: React.FC = () => {
                                   {item.quantity.toLocaleString('en-IN')} pcs
                                 </span>
                                 <button
-                                  onClick={() => updateCartItemQty(item.cartItemId, isCustom ? 50 : 12)}
+                                  onClick={() => {
+                                    const step = isCustom ? (item.quantity >= 50 ? 50 : item.quantity >= 10 ? 10 : 1) : 12;
+                                    updateCartItemQty(item.cartItemId, step);
+                                  }}
                                   className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
-                                  title={isCustom ? "Add 50 bottles" : "Add 12 bottles (1 pack)"}
+                                  title={isCustom ? "Add bottles" : "Add 12 bottles (1 pack)"}
                                 >
                                   <Plus className="w-2.5 h-2.5" />
                                 </button>
                               </div>
                               <span className="text-[10px] text-cyan-800 font-semibold block mt-0.5">
                                 {isCustom
-                                  ? `Min 600 pcs batch (${Math.ceil(item.quantity / 12)} × 12pk)`
+                                  ? `${item.quantity} Custom Design Bottles`
                                   : `${Math.ceil(item.quantity / 12)} × 12-pack bundle`}
                               </span>
                             </div>

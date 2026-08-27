@@ -340,7 +340,7 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
                 className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-bold text-xs bg-gradient-to-r from-sky-50 to-cyan-50 hover:from-sky-100 hover:to-cyan-100 text-cyan-800 border border-dashed border-cyan-400 transition-colors"
               >
                 <Sparkles className="w-4 h-4 text-cyan-600" />
-                <span>Create Custom Design Order (Min 600 Pcs • 2× Price)</span>
+                <span>Create Custom Design Order (1 to Unlimited • 2× Price)</span>
               </button>
             </div>
           </div>

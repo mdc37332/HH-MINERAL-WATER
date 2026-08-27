@@ -250,7 +250,7 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
             className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold text-cyan-700 bg-sky-50/70 hover:bg-sky-100/80 border border-dashed border-cyan-300 transition-colors"
           >
             <Sparkles className="w-3.5 h-3.5 text-cyan-600" />
-            <span>Custom Design Label (Min 600 Pcs • 2× Price)</span>
+            <span>Custom Design Label (1 to Unlimited • 2× Price)</span>
           </button>
         </div>
       </div>
