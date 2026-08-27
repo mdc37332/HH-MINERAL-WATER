@@ -25,6 +25,7 @@ export const products = pgTable('products', {
   category: text('category').notNull(),
   badge: text('badge'),
   casePackSize: integer('case_pack_size').default(24).notNull(),
+  customDesignPrice: integer('custom_design_price'),
   features: jsonb('features').notNull(),
   mineralInfo: jsonb('mineral_info').notNull(),
   createdAt: timestamp('created_at').defaultNow(),

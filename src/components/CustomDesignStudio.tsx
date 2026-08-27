@@ -24,7 +24,10 @@ import {
   ShieldCheck,
   Image as ImageIcon,
   Check,
-  Lock
+  Lock,
+  Minus,
+  Plus,
+  Package
 } from 'lucide-react';
 
 export const CustomDesignStudio: React.FC = () => {
@@ -56,7 +59,7 @@ export const CustomDesignStudio: React.FC = () => {
   const [finishType, setFinishType] = useState<CustomDesignDetails['finishType']>('Matte Luxury');
   const [bottleCapColor, setBottleCapColor] = useState('#0284c7');
   const [uploadedImages, setUploadedImages] = useState<UploadedImageData[]>([]);
-  const [quantity, setQuantity] = useState(50); // Default custom batch
+  const [quantity, setQuantity] = useState(600); // Default custom batch minimum 600 pieces
   const [activeStep, setActiveStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Sync if context set selectedProductForCustom
@@ -67,6 +70,8 @@ export const CustomDesignStudio: React.FC = () => {
   }, [selectedProductForCustom]);
 
   const activeProduct = products.find(p => p.id === selectedProductId) || products[0];
+  const customUnitPrice = activeProduct.customDesignPrice || (activeProduct.price * 2);
+  const totalCalculated = customUnitPrice * quantity;
 
   const eventPresets = [
     { type: 'Wedding', icon: Heart, desc: 'Bride & Groom Names, Wedding Date & Royal Monogram' },
@@ -129,22 +134,36 @@ export const CustomDesignStudio: React.FC = () => {
     showToast('Custom Order Added', `${activeProduct.name} custom order added to your cart.`, 'success');
   };
 
-  const totalCalculated = activeProduct.price * quantity;
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
       {/* Header Banner */}
       <div className="text-center max-w-3xl mx-auto mb-10">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyan-100/80 text-cyan-800 text-xs font-extrabold uppercase tracking-widest border border-cyan-200 shadow-2xs mb-3">
-          <Sparkles className="w-3.5 h-3.5 text-cyan-600" />
-          <span>Exclusive Custom Label Bottling</span>
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900 text-white text-xs font-extrabold uppercase tracking-widest border border-slate-700 shadow-sm mb-3">
+          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Custom Design Bottling • Min 600 Pcs • 2× Standard Rate</span>
         </div>
         <h1 className="font-heading text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 tracking-tight">
           CUSTOM DESIGN <span className="text-cyan-600">ORDER STUDIO</span>
         </h1>
         <p className="mt-3 text-slate-600 text-sm sm:text-base leading-relaxed">
-          Create bespoke, premium bottled mineral water with your original high-resolution logo, event date, personalized typography, and luxury matte or gold foil finish.
+          Create bespoke, luxury bottled mineral water with your original high-resolution logo, event date, personalized typography, and luxury finish. Custom production requires a minimum order of <strong>600 pieces</strong> and is priced at <strong>double the normal bottle price</strong> (or configured admin custom rate).
         </p>
+
+        {/* Pricing & Policy Badge Strip */}
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-xs">
+          <span className="px-3 py-1 bg-black text-white font-bold rounded-full border border-slate-700 flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+            Minimum Order: 600 Pieces
+          </span>
+          <span className="px-3 py-1 bg-cyan-50 text-cyan-900 font-bold rounded-full border border-cyan-200 flex items-center gap-1.5">
+            <Droplet className="w-3.5 h-3.5 text-cyan-600" />
+            Custom Rate: 2× Standard Bottle Price
+          </span>
+          <span className="px-3 py-1 bg-amber-50 text-amber-900 font-bold rounded-full border border-amber-200 flex items-center gap-1.5">
+            <Lock className="w-3.5 h-3.5 text-amber-600" />
+            Custom Pricing Editable by Admin Only
+          </span>
+        </div>
       </div>
 
       {/* Main Studio Grid */}
@@ -193,12 +212,15 @@ export const CustomDesignStudio: React.FC = () => {
                   <span className="w-6 h-6 rounded-full bg-cyan-600 text-white text-xs flex items-center justify-center font-bold">1</span>
                   Select Bottle Size
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">Choose the perfect bottle format for your occasion</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Choose the bottle format. Custom design rate is double standard price with a min 600 pieces batch.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {products.map(prod => {
                   const isSelected = prod.id === selectedProductId;
+                  const prodCustomPrice = prod.customDesignPrice || (prod.price * 2);
                   return (
                     <div
                       key={prod.id}
@@ -217,7 +239,10 @@ export const CustomDesignStudio: React.FC = () => {
                           className="max-h-full object-contain"
                         />
                       </div>
-                      <span className="font-heading text-sm font-extrabold text-cyan-700">₹{prod.price} / bottle</span>
+                      <div className="space-y-0.5">
+                        <div className="font-heading text-sm font-extrabold text-cyan-700">₹{prodCustomPrice}/bottle</div>
+                        <div className="text-[10px] text-slate-400 font-medium">Custom (2× ₹{prod.price})</div>
+                      </div>
                       {isSelected && (
                         <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-cyan-600 text-white flex items-center justify-center text-[10px]">
                           ✓
@@ -228,8 +253,41 @@ export const CustomDesignStudio: React.FC = () => {
                 })}
               </div>
 
+              {/* Quick Batch Quantity in Step 1 */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <Package className="w-4 h-4 text-cyan-600" />
+                      <span>Custom Batch Quantity Option</span>
+                    </h4>
+                    <p className="text-[11px] text-slate-500">Minimum 600 pieces per custom print run</p>
+                  </div>
+                  <span className="text-xs font-black text-cyan-700 bg-cyan-100/80 px-2.5 py-1 rounded-full">
+                    {quantity.toLocaleString('en-IN')} Pcs • ₹{totalCalculated.toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+                  {[600, 1200, 2400, 3600, 5000, 10000].map(qty => (
+                    <button
+                      key={qty}
+                      type="button"
+                      onClick={() => setQuantity(qty)}
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                        quantity === qty
+                          ? 'bg-cyan-600 text-white border-cyan-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:border-cyan-300'
+                      }`}
+                    >
+                      {qty.toLocaleString('en-IN')} pcs
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
-                <h3 className="font-heading text-sm font-bold text-slate-900 mt-4 mb-2">
+                <h3 className="font-heading text-sm font-bold text-slate-900 mt-2 mb-2">
                   Select Event / Purpose
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
@@ -286,15 +344,15 @@ export const CustomDesignStudio: React.FC = () => {
 
               {/* Login check alert if not signed in */}
               {!currentUser && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs text-amber-800">
+                <div className="p-3 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between text-xs text-slate-200">
                   <div className="flex items-center gap-2">
-                    <Lock className="w-4 h-4 text-amber-600" />
+                    <Lock className="w-4 h-4 text-cyan-400" />
                     <span>Sign in to save and link your high-res images to your customer account.</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => openAuthModal('login', 'Sign in to upload and link custom images')}
-                    className="font-bold underline text-amber-900 cursor-pointer shrink-0 ml-2"
+                    className="font-bold underline text-white hover:text-cyan-300 cursor-pointer shrink-0 ml-2"
                   >
                     Sign In
                   </button>
@@ -506,38 +564,132 @@ export const CustomDesignStudio: React.FC = () => {
                 </p>
               </div>
 
-              {/* Quantity Preset Pills */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2">
-                  Select Custom Batch Quantity (Bottles)
-                </label>
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                  {[24, 50, 100, 250, 500, 1000].map(qty => (
-                    <button
-                      key={qty}
-                      type="button"
-                      onClick={() => setQuantity(qty)}
-                      className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all ${
-                        quantity === qty
-                          ? 'border-cyan-600 bg-cyan-600 text-white shadow-xs'
-                          : 'border-slate-200 hover:border-cyan-300 text-slate-700 bg-slate-50'
-                      }`}
-                    >
-                      {qty} pcs
-                    </button>
-                  ))}
+              {/* Comprehensive Quantity Selection Engine */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-800">
+                      Select Custom Order Quantity (Minimum 600 Pieces)
+                    </label>
+                    <p className="text-[11px] text-slate-500">Pick a preset event batch or enter custom bottle count</p>
+                  </div>
+                  <span className="text-[11px] font-bold text-white bg-slate-900 px-3 py-1 rounded-full border border-slate-700 shadow-xs">
+                    Min 600 Pieces Floor
+                  </span>
                 </div>
 
-                <div className="mt-3 flex items-center gap-3">
-                  <span className="text-xs text-slate-600">Custom Quantity:</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={quantity}
-                    onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-28 px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-bold text-slate-900"
-                  />
-                  <span className="text-xs text-slate-500">bottles</span>
+                {/* Preset Event Batch Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {[
+                    { qty: 600, label: 'Standard Batch', sub: '50 × 12pk cases' },
+                    { qty: 1200, label: 'Grand Wedding', sub: '100 × 12pk cases' },
+                    { qty: 2400, label: 'Corporate Summit', sub: '200 × 12pk cases' },
+                    { qty: 3600, label: 'Luxury Hotel / Resort', sub: '300 × 12pk cases' },
+                    { qty: 4800, label: 'Multi-Day Festival', sub: '400 × 12pk cases' },
+                    { qty: 6000, label: 'Mega Exhibition', sub: '500 × 12pk cases' },
+                    { qty: 10000, label: 'Enterprise Campaign', sub: '833 × 12pk cases' },
+                    { qty: 20000, label: 'National Event', sub: '1,666 × 12pk cases' }
+                  ].map(preset => {
+                    const isSelected = quantity === preset.qty;
+                    return (
+                      <button
+                        key={preset.qty}
+                        type="button"
+                        onClick={() => setQuantity(preset.qty)}
+                        className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'border-cyan-600 bg-cyan-600 text-white shadow-md font-bold'
+                            : 'border-slate-200 hover:border-cyan-300 text-slate-700 bg-slate-50 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-black tracking-tight">{preset.qty.toLocaleString('en-IN')} pcs</span>
+                          {isSelected && <span className="text-xs">✓</span>}
+                        </div>
+                        <span className={`block text-xs font-semibold mt-0.5 ${isSelected ? 'text-cyan-100' : 'text-slate-800'}`}>
+                          {preset.label}
+                        </span>
+                        <span className={`block text-[10px] mt-0.5 ${isSelected ? 'text-cyan-200' : 'text-slate-400'}`}>
+                          {preset.sub}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Fine-Tuning Stepper & Numeric Input */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">Fine-Tune Quantity</span>
+                      <span className="text-[11px] text-slate-500">
+                        {Math.ceil(quantity / 12)} wholesale cases of 12-pack ({quantity.toLocaleString('en-IN')} bottles)
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {/* Step Adjust Buttons */}
+                      <div className="flex items-center bg-white rounded-xl p-1 border border-slate-200 shadow-2xs">
+                        <button
+                          type="button"
+                          onClick={() => setQuantity(Math.max(600, quantity - 50))}
+                          className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs cursor-pointer transition-colors"
+                          title="Decrease 50 bottles"
+                        >
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <input
+                          type="number"
+                          min={600}
+                          step={50}
+                          value={quantity}
+                          onChange={e => setQuantity(Math.max(600, parseInt(e.target.value) || 600))}
+                          className="w-24 text-center px-2 py-1 text-sm font-black text-slate-900 border-0 focus:ring-0"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setQuantity(quantity + 50)}
+                          className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs cursor-pointer transition-colors"
+                          title="Increase 50 bottles"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Quick Adjust Pills */}
+                      <div className="flex items-center gap-1">
+                        {[+100, +500, +1000].map(delta => (
+                          <button
+                            key={delta}
+                            type="button"
+                            onClick={() => setQuantity(quantity + delta)}
+                            className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-cyan-50 hover:text-cyan-700 hover:border-cyan-300 border border-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                          >
+                            +{delta.toLocaleString('en-IN')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Range Slider for Quantity */}
+                  <div className="pt-2">
+                    <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
+                      <span>600 pcs (Min)</span>
+                      <span>5,000 pcs</span>
+                      <span>10,000 pcs</span>
+                      <span>20,000+ pcs</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={600}
+                      max={20000}
+                      step={50}
+                      value={quantity}
+                      onChange={e => setQuantity(parseInt(e.target.value))}
+                      className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-cyan-600"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -562,12 +714,30 @@ export const CustomDesignStudio: React.FC = () => {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-600">Unit Price:</span>
-                  <span className="text-slate-900 font-semibold">₹{activeProduct.price} / bottle</span>
+                  <div>
+                    <span className="text-slate-600 font-medium">Custom Bottle Rate:</span>
+                    <span className="text-[10px] text-slate-400 block font-normal">(Double Standard Rate of ₹{activeProduct.price})</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-slate-900 font-bold text-sm">₹{customUnitPrice} / bottle</span>
+                  </div>
                 </div>
-                <div className="flex items-center justify-between pt-2 border-t border-slate-200">
-                  <span className="font-heading text-sm font-bold text-slate-900">Total Custom Order Price:</span>
-                  <span className="font-heading text-xl font-black text-cyan-700">₹{totalCalculated}</span>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">Total Quantity:</span>
+                  <span className="text-slate-900 font-bold">{quantity.toLocaleString('en-IN')} Pieces (Min 600)</span>
+                </div>
+                <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+                  <div>
+                    <span className="font-heading text-sm font-bold text-slate-900 block">Total Custom Order Price:</span>
+                    <span className="text-[10px] text-slate-500">₹{customUnitPrice} × {quantity.toLocaleString('en-IN')} pcs</span>
+                  </div>
+                  <span className="font-heading text-2xl font-black text-cyan-700">₹{totalCalculated.toLocaleString('en-IN')}</span>
+                </div>
+
+                {/* Admin-only custom pricing notice */}
+                <div className="p-2.5 bg-amber-50/70 border border-amber-200/80 rounded-xl text-[11px] text-amber-900 flex items-center gap-2">
+                  <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  <span>Custom design unit rates are set at double normal price and can only be modified by HH Admin.</span>
                 </div>
               </div>
 
@@ -585,7 +755,7 @@ export const CustomDesignStudio: React.FC = () => {
                   className="flex items-center gap-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white font-bold text-sm px-6 py-3 rounded-xl shadow-lg shadow-cyan-600/20 active:scale-95 transition-all cursor-pointer"
                 >
                   <ShoppingBag className="w-4 h-4" />
-                  <span>Add CUSTOM DESIGN ORDER to Bag (₹{totalCalculated})</span>
+                  <span>Add CUSTOM DESIGN ORDER to Bag (₹{totalCalculated.toLocaleString('en-IN')})</span>
                 </button>
               </div>
             </div>
@@ -623,14 +793,24 @@ export const CustomDesignStudio: React.FC = () => {
                 />
               </div>
 
-              <div className="flex-1 space-y-2 text-xs w-full">
+              <div className="flex-1 space-y-1.5 text-xs w-full">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-slate-900 text-sm">{activeProduct.name}</span>
-                  <span className="text-cyan-700 font-bold">₹{activeProduct.price}/ea</span>
                 </div>
-                <p className="text-slate-500 text-[11px] leading-relaxed">
-                  Natural Mineral Water with pH 7.2 Balanced Electrolytes and 7-stage filtration.
-                </p>
+                <div className="flex items-baseline justify-between bg-white p-2 rounded-xl border border-slate-200">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-semibold">CUSTOM DESIGN RATE</span>
+                    <span className="text-cyan-700 font-extrabold text-sm">₹{customUnitPrice}/bottle</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 block font-semibold">STANDARD RATE</span>
+                    <span className="text-slate-500 line-through text-xs">₹{activeProduct.price}/bottle</span>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-600 font-semibold px-1">
+                  <span>Minimum Batch:</span>
+                  <span className="text-slate-900 font-bold">600 Pieces</span>
+                </div>
                 <div className="pt-1 flex flex-wrap gap-1.5">
                   <span className="bg-white border border-slate-200 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded-md">
                     {finishType}
@@ -659,7 +839,7 @@ export const CustomDesignStudio: React.FC = () => {
               >
                 {/* Finish Badge */}
                 {finishType.includes('Foil') && (
-                  <div className="absolute top-2 right-2 bg-amber-400/90 text-amber-950 font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
+                  <div className="absolute top-2 right-2 bg-black text-white border border-slate-700 font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
                     ★ Foil Accent
                   </div>
                 )}
@@ -702,6 +882,78 @@ export const CustomDesignStudio: React.FC = () => {
                   <span>HH PURE MINERAL WATER</span>
                   <span>{activeProduct.size} • ZERO SODIUM</span>
                 </div>
+              </div>
+            </div>
+
+            {/* Custom Order Quantity & Pricing Action Card */}
+            <div className="bg-slate-900 text-white rounded-2xl p-4.5 border border-slate-800 space-y-3.5 shadow-lg">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5" />
+                  Order Quantity Option
+                </span>
+                <span className="text-[11px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded-full border border-slate-700 font-bold">
+                  Min 600 Pcs
+                </span>
+              </div>
+
+              {/* Quantity Stepper & Quick Pills */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center bg-slate-800 rounded-xl p-1 border border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(Math.max(600, quantity - 50))}
+                    className="w-7 h-7 rounded-lg bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center font-bold text-xs transition-colors cursor-pointer"
+                    title="Minus 50 bottles"
+                  >
+                    <Minus className="w-3 h-3" />
+                  </button>
+                  <span className="w-24 text-center text-xs font-black text-white">
+                    {quantity.toLocaleString('en-IN')} pcs
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setQuantity(quantity + 50)}
+                    className="w-7 h-7 rounded-lg bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center font-bold text-xs transition-colors cursor-pointer"
+                    title="Plus 50 bottles"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block font-semibold">Total Custom Rate</span>
+                  <span className="text-base font-black text-cyan-400">₹{totalCalculated.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+
+              {/* Quantity Preset Chips */}
+              <div className="grid grid-cols-4 gap-1.5 pt-1">
+                {[600, 1200, 2400, 5000].map(q => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setQuantity(q)}
+                    className={`py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                      quantity === q
+                        ? 'bg-cyan-500 text-white border-cyan-400'
+                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500'
+                    }`}
+                  >
+                    {q >= 1000 ? `${q / 1000}k` : q} pcs
+                  </button>
+                ))}
+              </div>
+
+              <div className="pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={handleAddToCart}
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-extrabold text-xs bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-md active:scale-98 transition-all cursor-pointer"
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Add {quantity.toLocaleString('en-IN')} Pcs Custom Order (₹{totalCalculated.toLocaleString('en-IN')})</span>
+                </button>
               </div>
             </div>
 

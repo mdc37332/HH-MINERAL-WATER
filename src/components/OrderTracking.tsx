@@ -318,7 +318,7 @@ export const OrderTracking: React.FC = () => {
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
-                    <span>WhatsApp Owner ({OWNER_WHATSAPP_NUMBER})</span>
+                    <span>Send to Admin WhatsApp (+91 {OWNER_WHATSAPP_NUMBER})</span>
                   </a>
                 </div>
               </div>

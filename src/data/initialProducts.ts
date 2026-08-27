@@ -1,5 +1,7 @@
 import { Product, AdminSettings } from '../types';
 
+export const AVAILABLE_PACK_SIZES = [12, 24, 36, 48] as const;
+
 export const INITIAL_PRODUCTS: Product[] = [
   {
     id: 'prod-250ml',
@@ -7,15 +9,18 @@ export const INITIAL_PRODUCTS: Product[] = [
     size: '250ml',
     price: 5,
     mrp: 8,
+    customDesignPrice: 10, // Double normal price (₹5 * 2)
     image: 'https://images.unsplash.com/photo-1559839914-17aae19cec71?auto=format&fit=crop&w=800&q=80',
-    shortDesc: 'Compact 250ml ergonomic bottle. Perfect for events, wedding tables, conferences, and on-the-go pure sips.',
-    description: 'HH 250ml Pocket Hydration provides crystal-clear pristine natural mineral water purified through a 7-stage advanced multi-barrier process with added natural electrolytes, balanced 7.4 pH, and essential minerals for instant refreshment.',
+    shortDesc: 'Compact 250ml ergonomic bottle. Sold in 12, 24, 36 & 48-bottle wholesale packs for events, weddings & conferences.',
+    description: 'HH 250ml Pocket Hydration provides crystal-clear pristine natural mineral water purified through a 7-stage advanced multi-barrier process with added natural electrolytes, balanced 7.4 pH, and essential minerals. Sold strictly in 12, 24, 36, and 48 piece packs (single bottle retail not available).',
     inStock: true,
-    minOrderQty: 1,
+    minOrderQty: 12,
     category: 'Standard',
     badge: 'Popular for Events',
     casePackSize: 24,
+    packOptions: [12, 24, 36, 48],
     features: [
+      'Available in 12, 24, 36, 48 piece packs',
       'Ergonomic easy-grip shape',
       'Tamper-evident airtight seal',
       'Ideal for custom label branding',
@@ -38,15 +43,18 @@ export const INITIAL_PRODUCTS: Product[] = [
     size: '500ml',
     price: 8,
     mrp: 12,
+    customDesignPrice: 16, // Double normal price (₹8 * 2)
     image: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80',
-    shortDesc: 'The classic 500ml companion for daily commute, gym, office desks, dining, and outdoor activities.',
-    description: 'Stay at peak hydration with HH 500ml Natural Mineral Water. Enhanced with essential Magnesium and Calcium, micro-filtered with reverse osmosis and activated carbon polish to deliver an exceptionally crisp, velvety mouthfeel.',
+    shortDesc: 'The classic 500ml companion for daily commute, gym, dining & offices. Sold in 12, 24, 36 & 48-bottle packs.',
+    description: 'Stay at peak hydration with HH 500ml Natural Mineral Water. Enhanced with essential Magnesium and Calcium, micro-filtered with reverse osmosis and activated carbon polish. Sold strictly in 12, 24, 36, and 48 piece factory packs.',
     inStock: true,
-    minOrderQty: 1,
+    minOrderQty: 12,
     category: 'Standard',
     badge: 'Best Seller',
-    casePackSize: 20,
+    casePackSize: 24,
+    packOptions: [12, 24, 36, 48],
     features: [
+      'Sold in 12, 24, 36, 48 bottle packs',
       'Perfect daily hydration balance',
       'Ultra-pure 7-Stage UV filtration',
       'Micro-structured clean taste',
@@ -69,15 +77,18 @@ export const INITIAL_PRODUCTS: Product[] = [
     size: '1L',
     price: 10,
     mrp: 15,
+    customDesignPrice: 20, // Double normal price (₹10 * 2)
     image: 'https://images.unsplash.com/photo-1523362628745-0c100150b504?auto=format&fit=crop&w=800&q=80',
-    shortDesc: 'Full 1-Liter family bottle for long journeys, corporate meeting rooms, restaurants, and active fitness.',
-    description: 'Our flagship 1L bottle engineered for uncompromising purity. Sourced from deep pristine aquifers, infused with balanced natural trace minerals, and sealed in high-durability crystal clear bottles with triple-lock spill proof lids.',
+    shortDesc: 'Full 1-Liter family bottle for long journeys, corporate meeting rooms & dining. Sold in 12, 24, 36 & 48 packs.',
+    description: 'Our flagship 1L bottle engineered for uncompromising purity. Sourced from deep pristine aquifers, infused with balanced natural trace minerals, and sealed in high-durability crystal clear bottles. Available exclusively in 12, 24, 36, and 48 bottle bundles.',
     inStock: true,
-    minOrderQty: 1,
+    minOrderQty: 12,
     category: 'Premium',
     badge: 'Great Value',
     casePackSize: 12,
+    packOptions: [12, 24, 36, 48],
     features: [
+      'Available in 12, 24, 36, 48 piece packs',
       'All-day optimal hydration reservoir',
       'Triple micro-purified & ozonated',
       'Natural mineral enrichment',
@@ -100,15 +111,18 @@ export const INITIAL_PRODUCTS: Product[] = [
     size: '2L',
     price: 25,
     mrp: 35,
+    customDesignPrice: 50, // Double normal price (₹25 * 2)
     image: 'https://images.unsplash.com/photo-1564419320461-6870880221ad?auto=format&fit=crop&w=800&q=80',
-    shortDesc: 'Jumbo 2-Liter mega bottle for households, dining tables, wedding catering, road trips, and bulk dining.',
-    description: 'HH 2L Family Pack ensures your household or party guests never run low on crisp, pure, revitalizing mineral water. Offers the maximum economy and convenience without compromising on our signature purity standards.',
+    shortDesc: 'Jumbo 2-Liter mega bottle for households, dining tables & wedding catering. Sold in 12, 24, 36 & 48 packs.',
+    description: 'HH 2L Family Pack ensures your household or party guests never run low on crisp, pure, revitalizing mineral water. Offers the maximum economy and convenience. Available in 12, 24, 36, and 48 piece pack bundles.',
     inStock: true,
-    minOrderQty: 1,
+    minOrderQty: 12,
     category: 'Standard',
     badge: 'Super Saver',
-    casePackSize: 6,
+    casePackSize: 12,
+    packOptions: [12, 24, 36, 48],
     features: [
+      'Available in 12, 24, 36, 48 piece packs',
       'High capacity 2000ml volume',
       'Heavy-duty ergonomic sturdy grip',
       'Cost-effective bulk hydration',

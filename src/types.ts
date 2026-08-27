@@ -49,6 +49,8 @@ export interface Product {
   features: string[];
   mineralInfo: MineralAnalysis;
   casePackSize: number; // e.g. 24 bottles per case for 250ml
+  packOptions?: number[]; // e.g. [12, 24, 36, 48]
+  customDesignPrice?: number; // Custom design price per bottle (admin-editable, defaults to 2x normal price)
 }
 
 export interface CustomDesignDetails {

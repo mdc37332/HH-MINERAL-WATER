@@ -503,6 +503,10 @@ export const AdminPanel: React.FC = () => {
       return;
     }
 
+    const customDesignPrice = editingProduct.customDesignPrice !== undefined && Number(editingProduct.customDesignPrice) > 0
+      ? Number(editingProduct.customDesignPrice)
+      : price * 2;
+
     const sanitizedProduct: Product = {
       ...editingProduct,
       id: editingProduct.id || `prod-${Date.now()}`,
@@ -510,6 +514,7 @@ export const AdminPanel: React.FC = () => {
       size,
       price,
       mrp: Number(editingProduct.mrp) || price,
+      customDesignPrice,
       image: editingProduct.image || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80',
       shortDesc: editingProduct.shortDesc?.trim() || `${size} Pure Natural Mineral Water`,
       description: editingProduct.description?.trim() || 'Pure 7-stage filtration mineral water enriched with essential minerals.',
@@ -1125,12 +1130,12 @@ export const AdminPanel: React.FC = () => {
               <span className="text-[11px] text-slate-500 mt-1 block">All Time</span>
             </div>
 
-            <div className="bg-white rounded-3xl p-5 border border-amber-200 bg-amber-50/40 shadow-xs">
-              <span className="text-xs font-bold text-amber-800 block uppercase">New Orders</span>
-              <span className="font-heading text-2xl font-black text-amber-900 mt-1 block">
+            <div className="bg-slate-950 text-white rounded-3xl p-5 border border-slate-800 shadow-sm">
+              <span className="text-xs font-bold text-slate-400 block uppercase">New Orders</span>
+              <span className="font-heading text-2xl font-black text-white mt-1 block">
                 {newOrdersCount}
               </span>
-              <span className="text-[11px] text-amber-700 font-semibold mt-1 block">Needs Confirmation</span>
+              <span className="text-[11px] text-cyan-400 font-semibold mt-1 block">Needs Confirmation</span>
             </div>
 
             <div className="bg-white rounded-3xl p-5 border border-blue-200 bg-blue-50/40 shadow-xs">
@@ -1713,7 +1718,7 @@ export const AdminPanel: React.FC = () => {
                           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-xs transition-colors cursor-pointer"
                         >
                           <MessageCircle className="w-3.5 h-3.5" />
-                          <span>Open WhatsApp to Owner (8017341130)</span>
+                          <span>Send to Admin WhatsApp (+91 {OWNER_WHATSAPP_NUMBER})</span>
                         </a>
 
                         {ord.status !== 'Cancelled' && (
@@ -2230,11 +2235,11 @@ export const AdminPanel: React.FC = () => {
                   <p className="text-xs text-slate-500 mt-1 line-clamp-2">{prod.shortDesc}</p>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100">
-                  <div className="flex items-baseline justify-between mb-3">
+                <div className="pt-3 border-t border-slate-100 space-y-2">
+                  <div className="flex items-baseline justify-between">
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-semibold">CUSTOMER PRICE</span>
-                      <span className="font-heading text-xl font-black text-slate-900">₹{prod.price}</span>
+                      <span className="text-[10px] text-slate-400 block font-semibold">STANDARD RATE</span>
+                      <span className="font-heading text-lg font-black text-slate-900">₹{prod.price}/bottle</span>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] text-slate-400 block font-semibold">MRP</span>
@@ -2242,7 +2247,33 @@ export const AdminPanel: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-5 gap-2">
+                  {/* Custom Design Pricing Spec (Admin Editable) */}
+                  <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200/80 text-[11px] space-y-1">
+                    <div className="flex items-center justify-between font-bold text-amber-900">
+                      <span>Custom Design Rate:</span>
+                      <span className="text-amber-800 font-extrabold">₹{prod.customDesignPrice || prod.price * 2}/bottle</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-amber-700/90">
+                      <span>Custom Min Order:</span>
+                      <span className="font-bold text-black bg-white/80 px-1.5 py-0.2 rounded border border-amber-300">600 Pieces</span>
+                    </div>
+                  </div>
+
+                  {/* Pack Selling Details */}
+                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/80 text-[11px] space-y-1">
+                    <div className="flex items-center justify-between font-bold text-slate-800">
+                      <span>Pack Formats:</span>
+                      <span className="text-cyan-700">12, 24, 36, 48 Pcs</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-500">
+                      <span>Pack Rates:</span>
+                      <span className="font-semibold text-slate-700">
+                        ₹{prod.price * 12} (12pk) – ₹{prod.price * 48} (48pk)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => setEditingProduct({ ...prod })}
@@ -2336,6 +2367,37 @@ export const AdminPanel: React.FC = () => {
                         onChange={e => setEditingProduct({ ...editingProduct, mrp: parseFloat(e.target.value) || 0 })}
                         className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs text-slate-600 focus:ring-2 focus:ring-cyan-500"
                       />
+                    </div>
+
+                    {/* Admin-Only Custom Design Unit Price Input */}
+                    <div className="sm:col-span-2 bg-amber-50/80 p-3.5 rounded-2xl border border-amber-200 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-amber-950 flex items-center gap-1.5">
+                          <Lock className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Custom Design Unit Price (₹ / bottle) — Admin Only</span>
+                        </label>
+                        <span className="text-[10px] font-bold text-amber-800 bg-amber-200/70 px-2 py-0.5 rounded-md">
+                          Min 600 Pcs Order Batch
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+                        <div className="sm:col-span-1">
+                          <input
+                            type="number"
+                            min={1}
+                            placeholder={`Default: ₹${(editingProduct.price || 0) * 2}`}
+                            value={editingProduct.customDesignPrice || (editingProduct.price ? editingProduct.price * 2 : '')}
+                            onChange={e => setEditingProduct({
+                              ...editingProduct,
+                              customDesignPrice: parseFloat(e.target.value) || 0
+                            })}
+                            className="w-full px-3.5 py-2 rounded-xl border border-amber-300 text-xs font-extrabold text-amber-900 bg-white focus:ring-2 focus:ring-amber-500"
+                          />
+                        </div>
+                        <div className="sm:col-span-2 text-[11px] text-amber-900 leading-snug">
+                          Standard custom design rate is <strong>double the normal bottle price (2×)</strong>. As an admin, you can customize this rate. Customers ordering custom label bottles will pay this rate for a minimum of 600 pieces.
+                        </div>
+                      </div>
                     </div>
 
                     <div className="sm:col-span-2 space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200">

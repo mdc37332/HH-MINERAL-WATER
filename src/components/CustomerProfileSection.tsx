@@ -213,7 +213,7 @@ export const CustomerProfileSection: React.FC = () => {
       case 'Event Venue':
         return <Sparkles className="w-4 h-4 text-purple-600" />;
       case 'Warehouse':
-        return <Building className="w-4 h-4 text-amber-600" />;
+        return <Building className="w-4 h-4 text-slate-800" />;
       default:
         return <MapPin className="w-4 h-4 text-slate-600" />;
     }

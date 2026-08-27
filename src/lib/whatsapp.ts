@@ -9,18 +9,16 @@ export const OWNER_WHATSAPP_INTERNATIONAL = '918017341130';
 export function formatOrderWhatsAppMessage(order: Order): string {
   // Format items list
   const productsListText = order.items
-    .map(item => {
-      const customTag = item.isCustomDesign ? ' [CUSTOM DESIGN]' : '';
+    .map((item, idx) => {
+      const customTag = item.isCustomDesign ? ' 🎨 [CUSTOM BRANDED LABEL]' : '';
       const totalItemPrice = item.unitPrice * item.quantity;
-      return `${item.product.name} (${item.product.size})${customTag} × ${item.quantity} — ₹${totalItemPrice}`;
+      return `${idx + 1}. *${item.product.name}* (${item.product.size})${customTag}\n   • Qty: *${item.quantity} units* × ₹${item.unitPrice} = *₹${totalItemPrice}*`;
     })
     .join('\n');
 
-  // Custom Design flag
-  const customDesignFlag = order.isCustomOrder ? 'YES' : 'NO';
-
-  // Original Image flag
-  const originalImageFlag = order.hasOriginalImage ? 'UPLOADED' : 'NOT UPLOADED';
+  // Custom Design flag & details
+  const customDesignFlag = order.isCustomOrder ? 'YES (Custom Branded Label)' : 'NO (Standard HH Water)';
+  const originalImageFlag = order.hasOriginalImage ? 'UPLOADED (High-Resolution File Attached)' : 'NOT UPLOADED';
 
   // Special instructions aggregation
   const specialInstructionsList: string[] = [];
@@ -59,28 +57,36 @@ export function formatOrderWhatsAppMessage(order: Order): string {
   // Full address
   const fullAddress = `${order.customer.address}, ${order.customer.landmark ? order.customer.landmark + ', ' : ''}${order.customer.city} - ${order.customer.pincode}`;
 
-  return `🛒 NEW HH MINERAL WATER ORDER
+  return `🛒 *NEW ORDER RECEIVED — HH MINERAL WATER*
 
-Order ID: ${order.id}
-Invoice No: ${order.invoiceNumber || 'HH/2026/' + order.id.replace(/\D/g, '').slice(-6).padStart(6, '0')}
-Customer Name: ${order.customer.name}
-Customer Phone: ${order.customer.phone}
-Delivery Address: ${fullAddress}
+📦 *Order ID:* ${order.id}
+🧾 *Invoice No:* ${order.invoiceNumber || 'HH/2026/' + order.id.replace(/\D/g, '').slice(-6).padStart(6, '0')}
+⏰ *Order Time:* ${orderTimeStr}
 
-Products:
+👤 *CUSTOMER DETAILS:*
+• *Name:* ${order.customer.name}
+• *Phone:* ${order.customer.phone}
+${order.customer.email ? `• *Email:* ${order.customer.email}\n` : ''}📍 *Delivery Address:*
+${fullAddress}
+
+🛍️ *ORDERED PRODUCTS:*
 ${productsListText}
 
-Custom Design: ${customDesignFlag}
-Original Image: ${originalImageFlag}
-Special Instructions: ${specialInstructionsText}
+💰 *PAYMENT & BILLING:*
+• *Subtotal:* ₹${order.subtotal}
+• *Delivery Charge:* ${order.deliveryCharge === 0 ? 'FREE' : `₹${order.deliveryCharge}`}
+• *Grand Total:* *₹${order.totalAmount}*
+• *Payment Method:* ${order.paymentMethod}
+• *Payment Status:* ${order.paymentStatus}
 
-Taxable Value + GST: Included
-Total Amount: ₹${order.totalAmount}
-Payment Method: ${order.paymentMethod}
-Order Time: ${orderTimeStr}
+🎨 *CUSTOMIZATION & NOTES:*
+• *Custom Design:* ${customDesignFlag}
+• *Artwork Files:* ${originalImageFlag}
+• *Special Instructions:* ${specialInstructionsText}
 
-📄 Official GST Tax Invoice has been generated automatically and is available for viewing/download.
-Please check the HH OWNER APP for complete order details.`;
+📄 *GST Tax Invoice:* Generated & recorded in HH Admin Portal.
+🏭 *HH MINERAL WATER BOTTLING & PACKAGING*
+Owner Phone: +91 8017341130 | Kolkata, West Bengal`;
 }
 
 /**

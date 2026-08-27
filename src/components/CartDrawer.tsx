@@ -171,30 +171,53 @@ export const CartDrawer: React.FC = () => {
 
                           {/* Price & Quantity Controls */}
                           <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-100">
-                            <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
-                              <button
-                                onClick={() => updateCartItemQty(item.cartItemId, -1)}
-                                className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
-                              >
-                                <Minus className="w-2.5 h-2.5" />
-                              </button>
-                              <span className="w-7 text-center text-xs font-bold text-slate-900">
-                                {item.quantity}
+                            <div>
+                              <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                                <button
+                                  onClick={() => {
+                                    if (isCustom) {
+                                      if (item.quantity <= 600) {
+                                        removeFromCart(item.cartItemId);
+                                      } else {
+                                        updateCartItemQty(item.cartItemId, -50);
+                                      }
+                                    } else {
+                                      if (item.quantity <= 12) {
+                                        removeFromCart(item.cartItemId);
+                                      } else {
+                                        updateCartItemQty(item.cartItemId, -12);
+                                      }
+                                    }
+                                  }}
+                                  className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
+                                  title={isCustom ? "Reduce 50 bottles" : "Reduce 12 bottles (1 pack)"}
+                                >
+                                  <Minus className="w-2.5 h-2.5" />
+                                </button>
+                                <span className="px-2 text-center text-xs font-bold text-slate-900">
+                                  {item.quantity.toLocaleString('en-IN')} pcs
+                                </span>
+                                <button
+                                  onClick={() => updateCartItemQty(item.cartItemId, isCustom ? 50 : 12)}
+                                  className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
+                                  title={isCustom ? "Add 50 bottles" : "Add 12 bottles (1 pack)"}
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                </button>
+                              </div>
+                              <span className="text-[10px] text-cyan-800 font-semibold block mt-0.5">
+                                {isCustom
+                                  ? `Min 600 pcs batch (${Math.ceil(item.quantity / 12)} × 12pk)`
+                                  : `${Math.ceil(item.quantity / 12)} × 12-pack bundle`}
                               </span>
-                              <button
-                                onClick={() => updateCartItemQty(item.cartItemId, 1)}
-                                className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
-                              >
-                                <Plus className="w-2.5 h-2.5" />
-                              </button>
                             </div>
 
                             <div className="text-right">
                               <span className="font-heading text-sm font-bold text-slate-900">
-                                ₹{itemTotal}
+                                ₹{itemTotal.toLocaleString('en-IN')}
                               </span>
-                              <span className="text-[10px] text-slate-400 block">
-                                (₹{item.unitPrice} each)
+                              <span className="text-[10px] text-slate-500 block">
+                                (₹{item.unitPrice}/bottle{isCustom ? ' • 2× rate' : ''})
                               </span>
                             </div>
                           </div>

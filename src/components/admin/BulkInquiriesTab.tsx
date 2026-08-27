@@ -193,10 +193,10 @@ export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast })
           <span className="font-heading text-2xl font-black text-slate-900 mt-1 block">{inquiries.length}</span>
           <span className="text-[11px] text-slate-500 mt-1 block">Bulk & Event Inquiries</span>
         </div>
-        <div className="bg-white rounded-3xl p-5 border border-amber-200 bg-amber-50/40 shadow-xs">
-          <span className="text-xs font-bold text-amber-800 block uppercase">New Inquiries</span>
-          <span className="font-heading text-2xl font-black text-amber-900 mt-1 block">{newCount}</span>
-          <span className="text-[11px] text-amber-700 font-semibold mt-1 block">Requires Quotation</span>
+        <div className="bg-slate-950 text-white rounded-3xl p-5 border border-slate-800 shadow-sm">
+          <span className="text-xs font-bold text-slate-400 block uppercase">New Inquiries</span>
+          <span className="font-heading text-2xl font-black text-white mt-1 block">{newCount}</span>
+          <span className="text-[11px] text-cyan-400 font-semibold mt-1 block">Requires Quotation</span>
         </div>
         <div className="bg-white rounded-3xl p-5 border border-blue-200 bg-blue-50/40 shadow-xs">
           <span className="text-xs font-bold text-blue-800 block uppercase">Quoted Sent</span>

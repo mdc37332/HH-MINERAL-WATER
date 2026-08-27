@@ -34,7 +34,7 @@ export const ProductCatalogSection: React.FC = () => {
             HH Mineral Water <span className="text-cyan-600">Product Range</span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-600 mt-1 max-w-xl">
-            Choose from our 250ml event bottles, 500ml daily hydration, 1L spring bottles, and 2L family party packs.
+            Choose from our 250ml event bottles, 500ml daily hydration, 1L spring bottles, and 2L family party packs. Available exclusively in 12, 24, 36 & 48-bottle sealed packs.
           </p>
         </div>
 
@@ -56,6 +56,21 @@ export const ProductCatalogSection: React.FC = () => {
               {sz === 'all' ? 'All Sizes' : sz}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Pack Selling Banner */}
+      <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 flex items-center gap-3.5 text-white shadow-lg">
+        <div className="w-10 h-10 rounded-xl bg-black border border-slate-700 text-cyan-400 flex items-center justify-center shrink-0 shadow-xs font-black">
+          <Package className="w-5 h-5 text-cyan-400" />
+        </div>
+        <div className="flex-1 text-xs">
+          <span className="font-bold text-white block sm:inline">
+            Factory Sealed Packs Only (12, 24, 36 & 48 Pcs):
+          </span>{' '}
+          <span className="text-slate-300">
+            For maximum quality and tamper assurance, all bottles are dispatched exclusively in bundles of 12, 24, 36, or 48 bottles. Single loose bottle sales are not permitted.
+          </span>
         </div>
       </div>
 

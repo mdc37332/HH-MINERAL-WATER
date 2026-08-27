@@ -20,8 +20,8 @@ export const ToastContainer: React.FC = () => {
           bg = 'bg-rose-950/95 text-rose-100 border-rose-700/60 shadow-rose-950/30';
           icon = <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />;
         } else if (toast.type === 'warning') {
-          bg = 'bg-amber-950/95 text-amber-100 border-amber-700/60 shadow-amber-950/30';
-          icon = <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />;
+          bg = 'bg-slate-950/95 text-slate-100 border-slate-700/80 shadow-slate-950/50';
+          icon = <AlertTriangle className="w-5 h-5 text-cyan-400 shrink-0" />;
         } else if (toast.type === 'info') {
           bg = 'bg-cyan-950/95 text-cyan-100 border-cyan-700/60 shadow-cyan-950/30';
           icon = <Info className="w-5 h-5 text-cyan-400 shrink-0" />;

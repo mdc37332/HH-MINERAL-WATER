@@ -131,19 +131,19 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
             </div>
           </div>
 
-          {/* WhatsApp Owner Dispatch Notice */}
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2.5">
+          {/* WhatsApp Admin Dispatch Card */}
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                  <MessageCircle className="w-4 h-4" />
+                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <MessageCircle className="w-5 h-5" />
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
-                    WhatsApp Order Confirmation
+                    Admin WhatsApp Notification
                   </h4>
                   <p className="text-[11px] text-emerald-800">
-                    Dispatched to HH Owner WhatsApp: <strong>{OWNER_WHATSAPP_NUMBER}</strong>
+                    Dispatched to Admin WhatsApp: <strong>+91 {OWNER_WHATSAPP_NUMBER}</strong>
                   </p>
                 </div>
               </div>
@@ -153,26 +153,26 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
             </div>
 
             <p className="text-[11px] text-emerald-900 leading-relaxed">
-              A formatted confirmation with your products, customer details, and invoice reference is queued for HH bottling dispatch.
+              Full order details including customer info, product list, custom design tags, and GST Tax invoice reference are formatted and sent directly to Admin WhatsApp (+91 {OWNER_WHATSAPP_NUMBER}).
             </p>
 
             <div className="flex flex-wrap gap-2 pt-0.5">
               <button
                 type="button"
                 onClick={handleOpenWhatsApp}
-                className="flex-1 inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3 rounded-xl shadow-xs transition-all cursor-pointer"
+                className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-3 rounded-xl shadow-xs transition-all cursor-pointer ring-2 ring-emerald-500/20"
               >
-                <MessageCircle className="w-3.5 h-3.5" />
-                <span>Open in WhatsApp</span>
+                <MessageCircle className="w-4 h-4 text-white" />
+                <span>Send Order Details to Admin WhatsApp (+91 {OWNER_WHATSAPP_NUMBER})</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleRetryWhatsApp}
                 disabled={isRetryingWhatsApp}
-                className="px-3 py-2 rounded-xl border border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50 text-xs font-semibold transition-colors cursor-pointer"
+                className="px-3 py-2.5 rounded-xl border border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50 text-xs font-semibold transition-colors cursor-pointer"
               >
-                {isRetryingWhatsApp ? 'Syncing...' : 'Resend Alert'}
+                {isRetryingWhatsApp ? 'Syncing...' : 'Resend to Admin'}
               </button>
             </div>
           </div>

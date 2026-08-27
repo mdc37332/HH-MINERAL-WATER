@@ -421,6 +421,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Add to cart
   const addToCart = (product: Product, quantity: number, customDetails?: CustomDesignDetails) => {
     const isCustom = !!customDetails;
+    // For custom design orders: minimum 600 pieces and unit price is double normal bottle price (or admin-configured customDesignPrice)
+    const effectiveQty = isCustom ? Math.max(600, quantity) : quantity;
+    const unitPrice = isCustom ? (product.customDesignPrice || product.price * 2) : product.price;
+
     const cartItemId = isCustom
       ? `custom-${product.id}-${Date.now()}`
       : `std-${product.id}`;
@@ -431,7 +435,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const existingIdx = prev.findIndex(item => item.cartItemId === cartItemId);
         if (existingIdx >= 0) {
           const updated = [...prev];
-          updated[existingIdx].quantity += quantity;
+          updated[existingIdx].quantity += effectiveQty;
           return updated;
         }
       }
@@ -440,8 +444,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         cartItemId,
         productId: product.id,
         product,
-        quantity,
-        unitPrice: product.price,
+        quantity: effectiveQty,
+        unitPrice,
         isCustomDesign: isCustom,
         customDesignDetails: customDetails,
         addedAt: new Date().toISOString()
@@ -450,8 +454,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     showToast(
-      isCustom ? 'Custom Order Added!' : 'Added to Cart!',
-      `${quantity} × ${product.name} (${product.size}) added to your shopping bag.`,
+      isCustom ? 'Custom Design Order Added!' : 'Added to Cart!',
+      isCustom
+        ? `${effectiveQty} × ${product.name} (${product.size}) @ ₹${unitPrice}/bottle (Min 600 pcs batch) added to your shopping bag.`
+        : `${quantity} × ${product.name} (${product.size}) added to your shopping bag.`,
       'success'
     );
   };
@@ -461,6 +467,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return prev
         .map(item => {
           if (item.cartItemId === cartItemId) {
+            if (item.isCustomDesign) {
+              const next = item.quantity + delta;
+              if (next < 600) {
+                if (delta < 0 && item.quantity <= 600) {
+                  showToast('Minimum Order 600 Pcs', 'Custom design orders require a minimum batch of 600 pieces. Click the delete icon to remove.', 'info');
+                  return item;
+                }
+                return { ...item, quantity: 600 };
+              }
+              return { ...item, quantity: next };
+            }
             const next = item.quantity + delta;
             return next > 0 ? { ...item, quantity: next } : null;
           }
@@ -476,7 +493,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     setCart(prev =>
-      prev.map(item => (item.cartItemId === cartItemId ? { ...item, quantity: qty } : item))
+      prev.map(item => {
+        if (item.cartItemId === cartItemId) {
+          const finalQty = item.isCustomDesign ? Math.max(600, qty) : qty;
+          return { ...item, quantity: finalQty };
+        }
+        return item;
+      })
     );
   };
 
