@@ -1,7 +1,7 @@
 import { db } from './index.ts';
-import { orders, products, storeSettings, users, invoices } from './schema.ts';
+import { orders, products, storeSettings, users, invoices, productAuditLogs } from './schema.ts';
 import { desc, eq, count } from 'drizzle-orm';
-import { Order, Product, AdminSettings, Invoice } from '../types.ts';
+import { Order, Product, AdminSettings, Invoice, ProductAuditLog } from '../types.ts';
 
 // User registration or retrieval
 export async function getOrCreateUser(uid: string, email: string, role: string = 'customer') {
@@ -48,6 +48,15 @@ export async function getAllProducts(): Promise<Product[]> {
       casePackSize: p.casePackSize,
       features: p.features as string[],
       mineralInfo: p.mineralInfo as any,
+      gstRate: p.gstRate ?? 18,
+      hsnCode: p.hsnCode || '2201',
+      discountPercent: p.discountPercent || (p.mrp > p.price ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0),
+      stockCount: p.stockCount ?? 500,
+      stockStatus: (p.stockStatus as any) || (p.inStock ? 'In Stock' : 'Out of Stock'),
+      tags: (p.tags as string[]) || [],
+      version: p.version || 1,
+      updatedAt: p.updatedAt ? p.updatedAt.toISOString() : undefined,
+      updatedBy: p.updatedBy || undefined,
     }));
   } catch (error) {
     console.error('Database query getAllProducts failed:', error);
@@ -55,15 +64,19 @@ export async function getAllProducts(): Promise<Product[]> {
   }
 }
 
-export async function upsertProduct(product: Product) {
+export async function upsertProduct(product: Product, adminEmail: string = 'mdhussain170707@gmail.com') {
   try {
+    const price = Math.round(Number(product.price)) || 10;
+    const mrp = Math.round(Number(product.mrp)) || price;
+    const discountPercent = product.discountPercent ?? (mrp > price ? Math.round(((mrp - price) / mrp) * 100) : 0);
+
     const payload = {
       id: product.id,
       name: product.name || 'HH Mineral Water',
       size: product.size || '500ml',
-      price: Math.round(Number(product.price)) || 10,
-      mrp: Math.round(Number(product.mrp)) || Math.round(Number(product.price)) || 15,
-      customDesignPrice: product.customDesignPrice ? Math.round(Number(product.customDesignPrice)) : (Math.round(Number(product.price)) * 2 || 20),
+      price,
+      mrp,
+      customDesignPrice: product.customDesignPrice ? Math.round(Number(product.customDesignPrice)) : (price * 2 || 20),
       image: product.image || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80',
       description: product.description || 'Pure 7-stage filtration mineral water enriched with natural minerals.',
       shortDesc: product.shortDesc || `${product.size || 'Bottle'} Pure Mineral Water`,
@@ -83,6 +96,15 @@ export async function upsertProduct(product: Product) {
         tds: '125 ppm',
         ph: '7.4'
       },
+      gstRate: product.gstRate ?? 18,
+      hsnCode: product.hsnCode || '2201',
+      discountPercent,
+      stockCount: product.stockCount ?? 500,
+      stockStatus: product.stockStatus || (product.inStock !== false ? 'In Stock' : 'Out of Stock'),
+      tags: Array.isArray(product.tags) ? product.tags : [],
+      version: (product.version || 0) + 1,
+      updatedAt: new Date(),
+      updatedBy: adminEmail,
     };
 
     const result = await db.insert(products)
@@ -99,6 +121,50 @@ export async function upsertProduct(product: Product) {
   }
 }
 
+export async function insertProductAuditLog(log: ProductAuditLog) {
+  try {
+    const result = await db.insert(productAuditLogs)
+      .values({
+        id: log.id,
+        productId: log.productId,
+        productName: log.productName,
+        changedField: log.changedField,
+        oldValue: log.oldValue,
+        newValue: log.newValue,
+        adminEmail: log.adminEmail,
+        adminName: log.adminName,
+        timestamp: log.timestamp,
+        deviceInfo: log.deviceInfo || null,
+      })
+      .returning();
+    return result[0];
+  } catch (error) {
+    console.error('Database query insertProductAuditLog failed:', error);
+    return null;
+  }
+}
+
+export async function getAllProductAuditLogs(): Promise<ProductAuditLog[]> {
+  try {
+    const rows = await db.select().from(productAuditLogs).orderBy(desc(productAuditLogs.createdAt));
+    return rows.map(r => ({
+      id: r.id,
+      productId: r.productId,
+      productName: r.productName,
+      changedField: r.changedField,
+      oldValue: r.oldValue,
+      newValue: r.newValue,
+      adminEmail: r.adminEmail,
+      adminName: r.adminName,
+      timestamp: r.timestamp,
+      deviceInfo: r.deviceInfo || undefined,
+    }));
+  } catch (error) {
+    console.error('Database query getAllProductAuditLogs failed:', error);
+    return [];
+  }
+}
+
 export async function deleteProductById(productId: string) {
   try {
     const result = await db.delete(products).where(eq(products.id, productId)).returning();
@@ -106,6 +172,16 @@ export async function deleteProductById(productId: string) {
   } catch (error) {
     console.error('Database query deleteProductById failed:', error);
     throw new Error('Failed to delete product.', { cause: error });
+  }
+}
+
+export async function deleteAllProducts() {
+  try {
+    const result = await db.delete(products).returning();
+    return result;
+  } catch (error) {
+    console.error('Database query deleteAllProducts failed:', error);
+    throw new Error('Failed to delete all products.', { cause: error });
   }
 }
 

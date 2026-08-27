@@ -433,10 +433,10 @@ export const OrderTracking: React.FC = () => {
 
                       <div className="text-right shrink-0">
                         <span className="text-xs text-slate-500 block">
-                          ₹{item.unitPrice} × {item.quantity}
+                          ₹{item.unitPrice} × {item.quantity.toLocaleString('en-IN')} Pieces
                         </span>
                         <span className="font-heading text-base font-bold text-slate-900">
-                          ₹{item.unitPrice * item.quantity}
+                          ₹{(item.unitPrice * item.quantity).toLocaleString('en-IN')}
                         </span>
                       </div>
                     </div>

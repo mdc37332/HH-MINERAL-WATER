@@ -97,6 +97,17 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
       return;
     }
 
+    // Check custom design minimum quantity constraint
+    const invalidCustom = cart.find(i => i.isCustomDesign && i.quantity < 600);
+    if (invalidCustom) {
+      showToast(
+        'Minimum Order 600 Pieces',
+        'Minimum custom design order is 600 pieces. Please increase quantity to proceed.',
+        'warning'
+      );
+      return;
+    }
+
     if (!name.trim()) {
       showToast('Name Required', 'Please provide your full name.', 'warning');
       return;
@@ -213,27 +224,66 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
         ) : (
           /* Form Body */
           <form onSubmit={handleSubmit} className="p-6 sm:p-8 space-y-6 max-h-[80vh] overflow-y-auto">
-            {/* Order Snapshot Pill */}
-            <div className="bg-cyan-50/80 border border-cyan-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-800">
-                    {cart.length} item{cart.length !== 1 ? 's' : ''} in Bag
-                  </span>
-                  {isCustom && (
-                    <span className="text-[10px] font-extrabold bg-cyan-600 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <Sparkles className="w-3 h-3" />
-                      Includes Custom Design
+            {/* Order Snapshot & Items Review */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-200">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-800">
+                      Order Summary ({cart.length} item{cart.length !== 1 ? 's' : ''})
                     </span>
-                  )}
+                    {isCustom && (
+                      <span className="text-[10px] font-extrabold bg-cyan-600 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        Includes Custom Design
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Account: <span className="font-semibold text-slate-700">{currentUser.email}</span>
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Logged in as <span className="font-semibold text-slate-700">{currentUser.email}</span>
-                </p>
+                <div className="text-right shrink-0">
+                  <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Due</span>
+                  <span className="font-heading text-xl font-black text-cyan-800">₹{cartTotal.toLocaleString('en-IN')}</span>
+                </div>
               </div>
-              <div className="text-right shrink-0">
-                <span className="text-[10px] text-slate-400 block font-semibold uppercase">Total Due</span>
-                <span className="font-heading text-xl font-black text-cyan-800">₹{cartTotal}</span>
+
+              {/* Items List Preview */}
+              <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                {cart.map(item => (
+                  <div key={item.cartItemId} className="flex items-center justify-between text-xs bg-white p-2.5 rounded-xl border border-slate-200/80">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <img
+                        src={item.product.image}
+                        alt={item.product.name}
+                        className="w-8 h-10 object-contain shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-900 truncate">
+                          {item.product.name} ({item.product.size})
+                        </p>
+                        {item.isCustomDesign && item.customDesignDetails ? (
+                          <p className="text-[10px] text-cyan-700 font-semibold truncate">
+                            Brand: {item.customDesignDetails.businessName} • {item.customDesignDetails.finishType}
+                            {item.customDesignDetails.uploadedImages?.length ? ` (${item.customDesignDetails.uploadedImages.length} Logo Attached)` : ''}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-slate-500">Standard Pack</p>
+                        )}
+                        <span className="text-[10px] font-extrabold text-slate-700">
+                          {item.quantity.toLocaleString('en-IN')} Pieces @ ₹{item.unitPrice}/pc
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0 pl-2">
+                      <span className="font-bold text-slate-900">
+                        ₹{(item.unitPrice * item.quantity).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 

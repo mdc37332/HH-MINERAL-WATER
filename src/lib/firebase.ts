@@ -26,7 +26,7 @@ import {
   updatePassword,
   User
 } from 'firebase/auth';
-import { Product, Order, OrderStatus, AdminSettings, CustomerProfile, CustomerAddress } from '../types';
+import { Product, Order, OrderStatus, AdminSettings, CustomerProfile, CustomerAddress, ProductAuditLog } from '../types';
 import { INITIAL_PRODUCTS, DEFAULT_ADMIN_SETTINGS } from '../data/initialProducts';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
@@ -295,7 +295,7 @@ export async function seedInitialProductsIfNeeded(): Promise<Product[]> {
   try {
     const productsCol = collection(db, 'products');
     const snapshot = await getDocs(productsCol);
-    if (snapshot.empty) {
+    if (snapshot.empty && INITIAL_PRODUCTS.length > 0) {
       for (const prod of INITIAL_PRODUCTS) {
         await setDoc(doc(db, 'products', prod.id), prod);
       }
@@ -308,7 +308,7 @@ export async function seedInitialProductsIfNeeded(): Promise<Product[]> {
       return prods;
     }
   } catch (err) {
-    console.warn('Firestore seeding failed, using local storage fallback:', err);
+    console.warn('Firestore seeding check notice, using local cache fallback:', err);
     const cached = localStorage.getItem(LS_PRODUCTS_KEY);
     if (cached) {
       try {
@@ -317,7 +317,6 @@ export async function seedInitialProductsIfNeeded(): Promise<Product[]> {
         // ignore
       }
     }
-    localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(INITIAL_PRODUCTS));
     return INITIAL_PRODUCTS;
   }
 }
@@ -329,19 +328,14 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
     const unsubscribe = onSnapshot(
       productsCol,
       snapshot => {
-        if (!snapshot.empty) {
-          const prods: Product[] = [];
-          snapshot.forEach(docSnap => {
-            prods.push(docSnap.data() as Product);
-          });
-          // Sort by price ascending
-          prods.sort((a, b) => a.price - b.price);
-          localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(prods));
-          onProductsChange(prods);
-        } else {
-          // If empty in Firestore, seed it
-          seedInitialProductsIfNeeded().then(p => onProductsChange(p));
-        }
+        const prods: Product[] = [];
+        snapshot.forEach(docSnap => {
+          prods.push(docSnap.data() as Product);
+        });
+        // Sort by price ascending
+        prods.sort((a, b) => a.price - b.price);
+        localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(prods));
+        onProductsChange(prods);
       },
       error => {
         console.warn('Firestore products listener fallback to local storage:', error);
@@ -366,17 +360,49 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
   }
 }
 
-// Update Product in DB
-export async function saveProductToDb(product: Product): Promise<void> {
+// Local storage fallback key for product audit logs
+const LS_PRODUCT_AUDIT_LOGS_KEY = 'hh_mineral_prod_audit_v1';
+
+// Update Product in DB with versioning & audit logging
+export async function saveProductToDb(
+  product: Product,
+  adminEmail: string = 'mdhussain170707@gmail.com',
+  adminName: string = 'Authorized Admin'
+): Promise<Product> {
+  const now = new Date().toISOString();
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Server';
+  const deviceInfo = /Mobile|Android|iPhone/i.test(userAgent) ? 'Mobile Device' : /Tablet|iPad/i.test(userAgent) ? 'Tablet' : 'Desktop Browser';
+
+  // Check previous product version to record audit diff
+  let existingProduct: Product | undefined;
+  try {
+    const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+    if (cached) {
+      const list: Product[] = JSON.parse(cached);
+      existingProduct = list.find(p => p.id === product.id);
+    }
+  } catch {
+    // ignore
+  }
+
+  const nextVersion = (product.version || existingProduct?.version || 0) + 1;
+  const enrichedProduct: Product = {
+    ...product,
+    version: nextVersion,
+    updatedAt: now,
+    updatedBy: adminEmail,
+    lastModifiedDevice: deviceInfo
+  };
+
   // Always update local cache first for instant feedback
   try {
     const cached = localStorage.getItem(LS_PRODUCTS_KEY);
     let list: Product[] = cached ? JSON.parse(cached) : [...INITIAL_PRODUCTS];
-    const idx = list.findIndex(p => p.id === product.id);
+    const idx = list.findIndex(p => p.id === enrichedProduct.id);
     if (idx >= 0) {
-      list[idx] = product;
+      list[idx] = enrichedProduct;
     } else {
-      list.push(product);
+      list.push(enrichedProduct);
     }
     localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(list));
   } catch {
@@ -385,15 +411,139 @@ export async function saveProductToDb(product: Product): Promise<void> {
 
   // Update Firestore
   try {
-    const docRef = doc(db, 'products', product.id);
-    await setDoc(docRef, product, { merge: true });
+    const docRef = doc(db, 'products', enrichedProduct.id);
+    await setDoc(docRef, enrichedProduct, { merge: true });
   } catch (err) {
     console.warn('Firestore product update error:', err);
+  }
+
+  // Generate audit logs for changed fields
+  if (existingProduct) {
+    const fieldsToTrack: (keyof Product)[] = [
+      'name',
+      'price',
+      'mrp',
+      'customDesignPrice',
+      'size',
+      'category',
+      'inStock',
+      'stockStatus',
+      'stockCount',
+      'discountPercent',
+      'gstRate',
+      'hsnCode',
+      'image',
+      'shortDesc',
+      'description',
+      'badge',
+      'casePackSize'
+    ];
+
+    for (const field of fieldsToTrack) {
+      const oldVal = existingProduct[field];
+      const newVal = enrichedProduct[field];
+      if (oldVal !== newVal && (oldVal !== undefined || newVal !== undefined)) {
+        const auditItem: ProductAuditLog = {
+          id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          productId: enrichedProduct.id,
+          productName: enrichedProduct.name,
+          changedField: String(field),
+          oldValue: oldVal !== undefined ? (typeof oldVal === 'object' ? JSON.stringify(oldVal) : String(oldVal)) : 'None',
+          newValue: newVal !== undefined ? (typeof newVal === 'object' ? JSON.stringify(newVal) : String(newVal)) : 'None',
+          adminEmail,
+          adminName,
+          timestamp: now,
+          deviceInfo
+        };
+        await recordProductAuditLogInDb(auditItem);
+      }
+    }
+  } else {
+    // Brand new product created
+    const auditItem: ProductAuditLog = {
+      id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      productId: enrichedProduct.id,
+      productName: enrichedProduct.name,
+      changedField: 'PRODUCT_CREATED',
+      oldValue: 'None (New Product)',
+      newValue: `Created variant ${enrichedProduct.size} @ ₹${enrichedProduct.price}`,
+      adminEmail,
+      adminName,
+      timestamp: now,
+      deviceInfo
+    };
+    await recordProductAuditLogInDb(auditItem);
+  }
+
+  return enrichedProduct;
+}
+
+// Record Product Audit Log in Firestore and local storage
+export async function recordProductAuditLogInDb(log: ProductAuditLog): Promise<void> {
+  // Update local cache
+  try {
+    const cached = localStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
+    const logs: ProductAuditLog[] = cached ? JSON.parse(cached) : [];
+    logs.unshift(log);
+    // Keep last 200 logs locally
+    localStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify(logs.slice(0, 200)));
+  } catch {
+    // ignore
+  }
+
+  // Persist to Firestore
+  try {
+    const docRef = doc(db, 'product_audit_logs', log.id);
+    await setDoc(docRef, log);
+  } catch (err) {
+    console.warn('Firestore audit log save error:', err);
+  }
+}
+
+// Subscribe to Product Audit Logs
+export function subscribeToProductAuditLogs(onLogsChange: (logs: ProductAuditLog[]) => void): () => void {
+  try {
+    const logsCol = collection(db, 'product_audit_logs');
+    const q = query(logsCol, orderBy('timestamp', 'desc'));
+    const unsubscribe = onSnapshot(
+      q,
+      snapshot => {
+        const logs: ProductAuditLog[] = [];
+        snapshot.forEach(docSnap => {
+          logs.push(docSnap.data() as ProductAuditLog);
+        });
+        localStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify(logs));
+        onLogsChange(logs);
+      },
+      error => {
+        console.warn('Firestore audit logs listener notice, using local cache fallback:', error);
+        const cached = localStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
+        if (cached) {
+          try {
+            onLogsChange(JSON.parse(cached));
+          } catch {
+            onLogsChange([]);
+          }
+        } else {
+          onLogsChange([]);
+        }
+      }
+    );
+    return unsubscribe;
+  } catch (e) {
+    console.warn('Error setting up product audit logs subscription:', e);
+    const cached = localStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
+    onLogsChange(cached ? JSON.parse(cached) : []);
+    return () => {};
   }
 }
 
 // Delete Product in DB
-export async function deleteProductFromDb(productId: string): Promise<void> {
+export async function deleteProductFromDb(
+  productId: string,
+  adminEmail: string = 'mdhussain170707@gmail.com',
+  productName: string = 'Bottle Product'
+): Promise<void> {
   // Update local cache
   try {
     const cached = localStorage.getItem(LS_PRODUCTS_KEY);
@@ -413,6 +563,57 @@ export async function deleteProductFromDb(productId: string): Promise<void> {
   } catch (err) {
     console.warn('Firestore product deletion error:', err);
   }
+
+  // Log product deletion
+  const now = new Date().toISOString();
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Server';
+  const deviceInfo = /Mobile|Android|iPhone/i.test(userAgent) ? 'Mobile Device' : 'Desktop Browser';
+  const auditItem: ProductAuditLog = {
+    id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    productId,
+    productName,
+    changedField: 'PRODUCT_DELETED',
+    oldValue: 'Active in Catalog',
+    newValue: 'Deleted from Database',
+    adminEmail,
+    adminName: 'Authorized Admin',
+    timestamp: now,
+    deviceInfo
+  };
+  await recordProductAuditLogInDb(auditItem);
+}
+
+// Delete All Products in DB
+export async function deleteAllProductsFromDb(adminEmail: string = 'mdhussain170707@gmail.com'): Promise<void> {
+  try {
+    const productsCol = collection(db, 'products');
+    const snapshot = await getDocs(productsCol);
+    const deletes = snapshot.docs.map(d => deleteDoc(d.ref));
+    await Promise.allSettled(deletes);
+  } catch (err) {
+    console.warn('Firestore delete all products error:', err);
+  }
+
+  try {
+    localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify([]));
+  } catch {
+    // ignore
+  }
+
+  const now = new Date().toISOString();
+  const auditItem: ProductAuditLog = {
+    id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+    productId: 'ALL',
+    productName: 'ALL_PRODUCTS_CATALOG',
+    changedField: 'ALL_PRODUCTS_DELETED',
+    oldValue: 'Catalog active',
+    newValue: 'All products cleared',
+    adminEmail,
+    adminName: 'Authorized Admin',
+    timestamp: now,
+    deviceInfo: 'Admin Session'
+  };
+  await recordProductAuditLogInDb(auditItem);
 }
 
 // Subscribe to Orders

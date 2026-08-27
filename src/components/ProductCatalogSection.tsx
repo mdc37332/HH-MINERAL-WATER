@@ -74,12 +74,40 @@ export const ProductCatalogSection: React.FC = () => {
         </div>
       </div>
 
-      {/* Product Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-        {filtered.map(product => (
-          <ProductCard key={product.id} product={product} />
-        ))}
-      </div>
+      {/* Product Cards Grid or Empty State */}
+      {filtered.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
+          {filtered.map(product => (
+            <ProductCard key={product.id} product={product} />
+          ))}
+        </div>
+      ) : (
+        <div className="bg-white border border-dashed border-slate-300 rounded-3xl p-12 text-center max-w-xl mx-auto space-y-4 shadow-xs">
+          <div className="w-16 h-16 rounded-2xl bg-cyan-50 text-cyan-700 mx-auto flex items-center justify-center">
+            <Droplet className="w-8 h-8 text-cyan-600" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="font-heading text-lg font-bold text-slate-900">No Products Currently Listed</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              All bottle products have been removed or no sizes match your filter. You can add new products via the Admin Panel or order custom design labels.
+            </p>
+          </div>
+          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+            <button
+              onClick={() => setCurrentSection('admin')}
+              className="px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors"
+            >
+              Open Admin Panel
+            </button>
+            <button
+              onClick={() => setCurrentSection('custom-design')}
+              className="px-4 py-2 rounded-xl bg-cyan-50 text-cyan-800 text-xs font-bold hover:bg-cyan-100 border border-cyan-200 transition-colors"
+            >
+              Custom Design Studio
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Custom Design Callout Banner */}
       <div className="bg-gradient-to-r from-sky-900 via-cyan-900 to-slate-900 rounded-3xl p-8 sm:p-10 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden">

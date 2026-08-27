@@ -372,7 +372,7 @@ Date: ${new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}`;
                         </div>
                       </td>
                       <td className="py-2.5 px-2 text-center font-mono font-medium text-slate-600">{item.hsnCode || '2201'}</td>
-                      <td className="py-2.5 px-2 text-center font-bold text-slate-900">{item.quantity}</td>
+                      <td className="py-2.5 px-2 text-center font-bold text-slate-900">{item.quantity.toLocaleString('en-IN')} pcs</td>
                       <td className="py-2.5 px-3 text-right font-medium text-slate-700">₹{item.unitPrice.toFixed(2)}</td>
                       <td className="py-2.5 px-3 text-right font-semibold text-slate-800">₹{item.taxableAmount.toFixed(2)}</td>
                       <td className="py-2.5 px-3 text-center text-slate-600">{item.gstRate}%</td>

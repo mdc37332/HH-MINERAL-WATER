@@ -36,7 +36,7 @@ export interface MineralAnalysis {
 export interface Product {
   id: string;
   name: string;
-  size: '250ml' | '500ml' | '1L' | '2L' | string;
+  size: '250ml' | '500ml' | '1L' | '2L' | '20L Jar' | string;
   price: number;
   mrp: number;
   image: string;
@@ -44,13 +44,38 @@ export interface Product {
   shortDesc: string;
   inStock: boolean;
   minOrderQty: number;
-  category: 'Standard' | 'Premium' | 'Custom';
+  category: 'Standard' | 'Premium' | 'Custom' | 'Bulk & Jars' | string;
   badge?: string;
   features: string[];
   mineralInfo: MineralAnalysis;
   casePackSize: number; // e.g. 24 bottles per case for 250ml
   packOptions?: number[]; // e.g. [12, 24, 36, 48]
   customDesignPrice?: number; // Custom design price per bottle (admin-editable, defaults to 2x normal price)
+  gstRate?: number; // e.g. 18 (%)
+  hsnCode?: string; // "2201"
+  discountPercent?: number; // e.g. 10%
+  stockCount?: number; // Numerical inventory count
+  stockStatus?: 'In Stock' | 'Low Stock' | 'Out of Stock';
+  tags?: string[]; // e.g. ["Packaged Water", "Natural Minerals", "Party Favourite"]
+  version?: number; // Server-side concurrency & version tracker
+  updatedAt?: string; // ISO timestamp of last update
+  updatedBy?: string; // Admin email or name who performed edit
+  lastModifiedDevice?: string; // e.g. "Mobile (Chrome Android)", "Desktop (macOS)"
+}
+
+export interface ProductAuditLog {
+  id: string;
+  productId: string;
+  productName: string;
+  changedField: string;
+  oldValue: string;
+  newValue: string;
+  adminEmail: string;
+  adminName: string;
+  timestamp: string; // ISO date string
+  deviceInfo?: string;
+  changeType?: 'created' | 'updated' | 'deleted' | string;
+  version?: number;
 }
 
 export interface CustomDesignDetails {

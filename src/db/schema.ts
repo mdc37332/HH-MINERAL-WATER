@@ -28,6 +28,30 @@ export const products = pgTable('products', {
   customDesignPrice: integer('custom_design_price'),
   features: jsonb('features').notNull(),
   mineralInfo: jsonb('mineral_info').notNull(),
+  gstRate: integer('gst_rate').default(18),
+  hsnCode: text('hsn_code').default('2201'),
+  discountPercent: integer('discount_percent'),
+  stockCount: integer('stock_count').default(500),
+  stockStatus: text('stock_status').default('In Stock'),
+  tags: jsonb('tags'),
+  version: integer('version').default(1),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedBy: text('updated_by'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+// Product Audit Logs table (Record of all product changes)
+export const productAuditLogs = pgTable('product_audit_logs', {
+  id: text('id').primaryKey(),
+  productId: text('product_id').notNull(),
+  productName: text('product_name').notNull(),
+  changedField: text('changed_field').notNull(),
+  oldValue: text('old_value').notNull(),
+  newValue: text('new_value').notNull(),
+  adminEmail: text('admin_email').notNull(),
+  adminName: text('admin_name').notNull(),
+  timestamp: text('timestamp').notNull(),
+  deviceInfo: text('device_info'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

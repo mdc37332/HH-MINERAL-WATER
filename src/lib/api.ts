@@ -1,4 +1,4 @@
-import { Product, Order, AdminSettings, Invoice } from '../types';
+import { Product, Order, AdminSettings, Invoice, ProductAuditLog } from '../types';
 import { auth } from './firebase';
 
 export interface AuditLogItem {
@@ -155,6 +155,21 @@ export async function fetchAdminAuditLogsApi(adminToken: string): Promise<AuditL
   }
 }
 
+export async function fetchProductAuditLogsApi(adminToken?: string | null): Promise<ProductAuditLog[]> {
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(await getAuthHeader(adminToken)),
+    };
+    const res = await fetch('/api/products/audit-logs', { headers });
+    if (!res.ok) throw new Error('Failed to fetch product audit logs');
+    return await res.json();
+  } catch (err) {
+    console.warn('fetchProductAuditLogsApi fallback:', err);
+    return [];
+  }
+}
+
 // --- STORE APIS ---
 
 export async function fetchProductsApi(): Promise<Product[]> {
@@ -200,6 +215,23 @@ export async function deleteProductApi(productId: string, adminToken?: string | 
     return res.ok;
   } catch (err) {
     console.warn('API deleteProduct fallback:', err);
+    return false;
+  }
+}
+
+export async function deleteAllProductsApi(adminToken?: string | null): Promise<boolean> {
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(await getAuthHeader(adminToken)),
+    };
+    const res = await fetch('/api/products', {
+      method: 'DELETE',
+      headers,
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('API deleteAllProducts fallback:', err);
     return false;
   }
 }

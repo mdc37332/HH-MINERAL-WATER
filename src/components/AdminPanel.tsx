@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Product, Order, OrderStatus, AdminSettings } from '../types';
+import { Product, Order, OrderStatus, AdminSettings, ProductAuditLog } from '../types';
 import { AuditLogItem } from '../lib/api';
 import {
   KeyRound,
@@ -111,6 +111,7 @@ export const AdminPanel: React.FC = () => {
     updateAdminSettings,
     updateProduct,
     deleteProduct,
+    deleteAllProducts,
     resetProductsToDefault,
     updateOrderStatus,
     cancelOrder,
@@ -127,6 +128,8 @@ export const AdminPanel: React.FC = () => {
     adminLogout,
     adminLogoutAll,
     fetchAuditLogs,
+    productAuditLogs,
+    fetchProductAuditLogs,
     showToast
   } = useStore();
 
@@ -176,6 +179,9 @@ export const AdminPanel: React.FC = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isNewProductModal, setIsNewProductModal] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [showProductAuditModal, setShowProductAuditModal] = useState(false);
+  const [productAuditSearchQuery, setProductAuditSearchQuery] = useState('');
+  const [productAuditProductFilter, setProductAuditProductFilter] = useState('all');
 
   // Delivery Challan Modal & Add Customer Modal
   const [selectedChallanOrder, setSelectedChallanOrder] = useState<Order | null>(null);
@@ -507,13 +513,24 @@ export const AdminPanel: React.FC = () => {
       ? Number(editingProduct.customDesignPrice)
       : price * 2;
 
+    const mrpValue = Number(editingProduct.mrp) || price;
+    const discountPercent = mrpValue > price ? Math.round(((mrpValue - price) / mrpValue) * 100) : 0;
+
     const sanitizedProduct: Product = {
       ...editingProduct,
       id: editingProduct.id || `prod-${Date.now()}`,
       name,
       size,
       price,
-      mrp: Number(editingProduct.mrp) || price,
+      mrp: mrpValue,
+      discountPercent: editingProduct.discountPercent !== undefined ? Number(editingProduct.discountPercent) : discountPercent,
+      gstRate: editingProduct.gstRate !== undefined ? Number(editingProduct.gstRate) : 18,
+      hsnCode: editingProduct.hsnCode?.trim() || '2201',
+      stockCount: editingProduct.stockCount !== undefined ? Number(editingProduct.stockCount) : 500,
+      stockStatus: editingProduct.inStock === false ? 'Out of Stock' : (editingProduct.stockStatus || 'In Stock'),
+      tags: Array.isArray(editingProduct.tags) && editingProduct.tags.length > 0
+        ? editingProduct.tags
+        : ['Pure Mineral', 'Natural Source', 'UV Treated'],
       customDesignPrice,
       image: editingProduct.image || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80',
       shortDesc: editingProduct.shortDesc?.trim() || `${size} Pure Natural Mineral Water`,
@@ -522,6 +539,7 @@ export const AdminPanel: React.FC = () => {
       minOrderQty: Math.max(1, Number(editingProduct.minOrderQty) || 1),
       category: editingProduct.category || 'Standard',
       casePackSize: Math.max(1, Number(editingProduct.casePackSize) || 24),
+      badge: editingProduct.badge?.trim() || undefined,
       features: Array.isArray(editingProduct.features) && editingProduct.features.length > 0
         ? editingProduct.features
         : ['7-stage UV & Ozonation', 'BPA-Free PET', 'Touchless Bottling'],
@@ -1825,7 +1843,7 @@ export const AdminPanel: React.FC = () => {
                             {c?.tagline && <p className="text-xs text-slate-600 mt-0.5">{c.tagline}</p>}
                           </div>
                           <span className="font-bold text-slate-900 text-sm">
-                            {item.quantity} bottles
+                            {item.quantity.toLocaleString('en-IN')} pieces
                           </span>
                         </div>
 
@@ -2132,17 +2150,53 @@ export const AdminPanel: React.FC = () => {
       {/* TAB 4: PRODUCT CATALOG & PRICE MANAGEMENT */}
       {activeTab === 'products' && (
         <div className="space-y-6 animate-in fade-in">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200">
-            <div>
-              <h2 className="font-heading text-xl font-bold text-slate-900">
-                Product Catalog & Price Controller
-              </h2>
-              <p className="text-xs text-slate-500 mt-1">
-                Edit prices, MRP, sizes, stock levels, or delete and add bottles. Changes immediately sync to live customer store & database!
+          {/* Header & Cloud Sync Status Banner */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <h2 className="font-heading text-xl font-bold text-slate-900">
+                  Product Catalog & Real-Time Controller
+                </h2>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Cloud Real-Time Sync Active
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 max-w-2xl">
+                Edit prices, MRP, sizes, GST tax rates, stock levels, or custom design pricing from any device. Changes instantly broadcast across mobile phones, tablets, desktops, and customer bags.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  fetchProductAuditLogs();
+                  setShowProductAuditModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                title="View multi-device change history and audit trail"
+              >
+                <History className="w-3.5 h-3.5 text-purple-700" />
+                <span>Audit History ({productAuditLogs.length})</span>
+              </button>
+
+              {products.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (window.confirm('Are you sure you want to DELETE ALL PRODUCTS from the store and database? This action will remove all bottle items.')) {
+                      await deleteAllProducts();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-bold transition-colors cursor-pointer"
+                  title="Delete all products from store catalog and database"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Delete All</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={async () => {
@@ -2154,7 +2208,7 @@ export const AdminPanel: React.FC = () => {
                 title="Restore default HH Mineral Water bottle catalog"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-                <span>Restore Defaults</span>
+                <span>Defaults</span>
               </button>
 
               <button
@@ -2165,6 +2219,12 @@ export const AdminPanel: React.FC = () => {
                     size: '300ml',
                     price: 6,
                     mrp: 10,
+                    discountPercent: 40,
+                    gstRate: 18,
+                    hsnCode: '2201',
+                    stockCount: 500,
+                    stockStatus: 'In Stock',
+                    tags: ['Pure Mineral', 'UV Treated', 'BPA Free'],
                     image: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80',
                     shortDesc: 'Pure natural mineral water bottle.',
                     description: 'Pure 7-stage filtration mineral water enriched with natural minerals.',
@@ -2190,12 +2250,25 @@ export const AdminPanel: React.FC = () => {
                 className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
-                <span>Add New Bottle Product</span>
+                <span>Add Product</span>
               </button>
             </div>
           </div>
 
-          {/* Product Cards Grid */}
+          {/* Product Cards Grid or Empty State */}
+          {products.length === 0 ? (
+            <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto space-y-4">
+              <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center">
+                <Trash2 className="w-8 h-8 text-rose-500" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-heading text-lg font-bold text-slate-900">All Products Deleted</h3>
+                <p className="text-xs text-slate-500">
+                  There are currently no products in the catalog or database. You can click &quot;Add Product&quot; to create a custom product or &quot;Defaults&quot; to load factory defaults.
+                </p>
+              </div>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {products.map(prod => (
               <div
@@ -2209,6 +2282,11 @@ export const AdminPanel: React.FC = () => {
                       alt={prod.name}
                       className="max-h-full max-w-full object-contain"
                     />
+                    {prod.badge && (
+                      <span className="absolute top-2 left-2 text-[9px] font-extrabold bg-amber-500 text-slate-950 px-2 py-0.5 rounded-md shadow-xs">
+                        {prod.badge}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center justify-between">
@@ -2238,13 +2316,20 @@ export const AdminPanel: React.FC = () => {
                 <div className="pt-3 border-t border-slate-100 space-y-2">
                   <div className="flex items-baseline justify-between">
                     <div>
-                      <span className="text-[10px] text-slate-400 block font-semibold">STANDARD RATE</span>
+                      <span className="text-[10px] text-slate-400 block font-semibold">SELLING RATE</span>
                       <span className="font-heading text-lg font-black text-slate-900">₹{prod.price}/bottle</span>
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] text-slate-400 block font-semibold">MRP</span>
                       <span className="text-xs text-slate-400 line-through">₹{prod.mrp}</span>
                     </div>
+                  </div>
+
+                  {/* GST & Stock Meta Info */}
+                  <div className="flex items-center justify-between text-[10px] bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200/70 text-slate-600">
+                    <span>GST Rate: <strong className="text-slate-800">{prod.gstRate || 18}%</strong></span>
+                    <span>HSN: <strong className="text-slate-800">{prod.hsnCode || '2201'}</strong></span>
+                    <span>Stock: <strong className="text-emerald-700">{prod.stockCount ?? 500}</strong></span>
                   </div>
 
                   {/* Custom Design Pricing Spec (Admin Editable) */}
@@ -2255,7 +2340,7 @@ export const AdminPanel: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-amber-700/90">
                       <span>Custom Quantity:</span>
-                      <span className="font-bold text-black bg-white/80 px-1.5 py-0.2 rounded border border-amber-300">1 to Unlimited</span>
+                      <span className="font-bold text-black bg-white/80 px-1.5 py-0.2 rounded border border-amber-300">Min 600 to Unlimited</span>
                     </div>
                   </div>
 
@@ -2263,12 +2348,12 @@ export const AdminPanel: React.FC = () => {
                   <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/80 text-[11px] space-y-1">
                     <div className="flex items-center justify-between font-bold text-slate-800">
                       <span>Pack Formats:</span>
-                      <span className="text-cyan-700">12, 24, 36, 48 Pcs</span>
+                      <span className="text-cyan-700">{prod.casePackSize || 24} Pcs Pack</span>
                     </div>
                     <div className="flex items-center justify-between text-[10px] text-slate-500">
-                      <span>Pack Rates:</span>
+                      <span>Case Rate:</span>
                       <span className="font-semibold text-slate-700">
-                        ₹{prod.price * 12} (12pk) – ₹{prod.price * 48} (48pk)
+                        ₹{prod.price * (prod.casePackSize || 24)} / case
                       </span>
                     </div>
                   </div>
@@ -2296,15 +2381,21 @@ export const AdminPanel: React.FC = () => {
               </div>
             ))}
           </div>
+          )}
 
           {/* Edit Product Modal */}
           {editingProduct && (
             <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
               <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 max-h-[85vh] overflow-y-auto space-y-5 animate-in zoom-in-95">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                  <h3 className="font-heading text-lg font-bold text-slate-900">
-                    {isNewProductModal ? 'Add New Bottle Product' : `Edit Product: ${editingProduct.name}`}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-heading text-lg font-bold text-slate-900">
+                      {isNewProductModal ? 'Add New Bottle Product' : `Edit Product: ${editingProduct.name}`}
+                    </h3>
+                    <span className="text-[10px] bg-cyan-100 text-cyan-800 px-2 py-0.5 rounded-md font-mono font-bold">
+                      {editingProduct.id}
+                    </span>
+                  </div>
                   <button
                     onClick={() => setEditingProduct(null)}
                     className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer"
@@ -2324,26 +2415,26 @@ export const AdminPanel: React.FC = () => {
                         required
                         value={editingProduct.name}
                         onChange={e => setEditingProduct({ ...editingProduct, name: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-cyan-500"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-cyan-500 font-semibold"
                       />
                     </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Size Label (e.g. 250ml, 500ml, 1L, 2L) *
+                        Bottle Size (e.g. 250ml, 500ml, 1L, 2L) *
                       </label>
                       <input
                         type="text"
                         required
                         value={editingProduct.size}
                         onChange={e => setEditingProduct({ ...editingProduct, size: e.target.value })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-cyan-500"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-cyan-500 font-semibold"
                       />
                     </div>
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Selling Price (₹) *
+                        Selling Price (₹ / bottle) *
                       </label>
                       <input
                         type="number"
@@ -2357,7 +2448,7 @@ export const AdminPanel: React.FC = () => {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        MRP (₹)
+                        MRP (₹ / bottle)
                       </label>
                       <input
                         type="number"
@@ -2366,6 +2457,37 @@ export const AdminPanel: React.FC = () => {
                         value={editingProduct.mrp}
                         onChange={e => setEditingProduct({ ...editingProduct, mrp: parseFloat(e.target.value) || 0 })}
                         className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs text-slate-600 focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+
+                    {/* GST & Tax Settings */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        GST Tax Rate (%)
+                      </label>
+                      <select
+                        value={editingProduct.gstRate ?? 18}
+                        onChange={e => setEditingProduct({ ...editingProduct, gstRate: Number(e.target.value) })}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold"
+                      >
+                        <option value={0}>0% (Exempt)</option>
+                        <option value={5}>5% GST</option>
+                        <option value={12}>12% GST</option>
+                        <option value={18}>18% Standard GST (Packaged Drinking Water)</option>
+                        <option value={28}>28% GST</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        HSN / SAC Code
+                      </label>
+                      <input
+                        type="text"
+                        value={editingProduct.hsnCode || '2201'}
+                        onChange={e => setEditingProduct({ ...editingProduct, hsnCode: e.target.value })}
+                        placeholder="e.g. 2201 (Mineral Water)"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-mono"
                       />
                     </div>
 
@@ -2395,11 +2517,95 @@ export const AdminPanel: React.FC = () => {
                           />
                         </div>
                         <div className="sm:col-span-2 text-[11px] text-amber-900 leading-snug">
-                          Standard custom design rate is <strong>double the normal bottle price (2×)</strong>. As an admin, you can customize this rate. Customers ordering custom label bottles will pay this rate for a minimum of 600 pieces.
+                          Standard custom design rate is <strong>double the normal bottle price (2×)</strong>. Customers ordering custom label bottles will pay this rate for a minimum quantity of 600 pieces.
                         </div>
                       </div>
                     </div>
 
+                    {/* Stock Status & Quantity */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Stock Status
+                      </label>
+                      <select
+                        value={editingProduct.inStock ? (editingProduct.stockStatus || 'In Stock') : 'Out of Stock'}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setEditingProduct({
+                            ...editingProduct,
+                            stockStatus: val as any,
+                            inStock: val !== 'Out of Stock'
+                          });
+                        }}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold"
+                      >
+                        <option value="In Stock">In Stock (Available)</option>
+                        <option value="Low Stock">Low Stock (Warning)</option>
+                        <option value="Out of Stock">Out of Stock (Disabled)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Inventory Count (Units)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={editingProduct.stockCount ?? 500}
+                        onChange={e => setEditingProduct({ ...editingProduct, stockCount: parseInt(e.target.value) || 0 })}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold"
+                      />
+                    </div>
+
+                    {/* Product Category & Case Pack Size */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Product Category
+                      </label>
+                      <select
+                        value={editingProduct.category || 'Standard'}
+                        onChange={e => setEditingProduct({ ...editingProduct, category: e.target.value as any })}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-semibold"
+                      >
+                        <option value="Standard">Standard Packaged Mineral Water</option>
+                        <option value="Premium">Premium Spring Glass / Luxury</option>
+                        <option value="Custom Edition">Custom Edition / Event Branding</option>
+                        <option value="Bulk">Bulk Hydration / Family Pack</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Case Pack Size (Bottles per Box)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={editingProduct.casePackSize || 24}
+                        onChange={e => setEditingProduct({ ...editingProduct, casePackSize: parseInt(e.target.value) || 24 })}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs"
+                      />
+                    </div>
+
+                    {/* Product Tags */}
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Product Tags (Comma Separated)
+                      </label>
+                      <input
+                        type="text"
+                        value={Array.isArray(editingProduct.tags) ? editingProduct.tags.join(', ') : (editingProduct.tags || '')}
+                        onChange={e => setEditingProduct({
+                          ...editingProduct,
+                          tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean)
+                        })}
+                        placeholder="e.g. Pure Mineral, UV Treated, BPA Free, Event Special"
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs"
+                      />
+                    </div>
+
+                    {/* Product Image */}
                     <div className="sm:col-span-2 space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                       <div className="flex items-center justify-between">
                         <label className="block text-xs font-bold text-slate-800">
@@ -2409,7 +2615,6 @@ export const AdminPanel: React.FC = () => {
                       </div>
 
                       <div className="flex flex-col sm:flex-row items-center gap-4">
-                        {/* Live Image Preview */}
                         <div className="w-20 h-20 bg-white rounded-xl border border-slate-200 p-2 flex items-center justify-center shrink-0 shadow-inner">
                           {editingProduct.image ? (
                             <img
@@ -2493,20 +2698,6 @@ export const AdminPanel: React.FC = () => {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-700 mb-1">
-                        Stock Availability
-                      </label>
-                      <select
-                        value={editingProduct.inStock ? 'true' : 'false'}
-                        onChange={e => setEditingProduct({ ...editingProduct, inStock: e.target.value === 'true' })}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs"
-                      >
-                        <option value="true">In Stock (Available for orders)</option>
-                        <option value="false">Out of Stock</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
                         Badge Text (Optional)
                       </label>
                       <input
@@ -2555,18 +2746,182 @@ export const AdminPanel: React.FC = () => {
                         {isSavingProduct ? (
                           <>
                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            <span>Saving Product...</span>
+                            <span>Broadcasting Across Devices...</span>
                           </>
                         ) : (
                           <>
                             <Save className="w-4 h-4" />
-                            <span>Save & Sync Database</span>
+                            <span>Save & Broadcast All Devices</span>
                           </>
                         )}
                       </button>
                     </div>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* Product Audit History Modal */}
+          {showProductAuditModal && (
+            <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+              <div className="bg-white rounded-3xl max-w-4xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 max-h-[85vh] overflow-y-auto space-y-5 animate-in zoom-in-95">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <History className="w-5 h-5 text-purple-700" />
+                      <h3 className="font-heading text-lg font-bold text-slate-900">
+                        Product Change Audit Log & Version History
+                      </h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Immutable record of product changes across every admin device session. Single source of truth.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowProductAuditModal(false)}
+                    className="self-end sm:self-auto text-slate-400 hover:text-slate-700 text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 cursor-pointer transition-colors"
+                  >
+                    Close Log
+                  </button>
+                </div>
+
+                {/* Filters */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="relative flex-1 w-full">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search by product, field, admin email, or value..."
+                      value={productAuditSearchQuery}
+                      onChange={e => setProductAuditSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <select
+                      value={productAuditProductFilter}
+                      onChange={e => setProductAuditProductFilter(e.target.value)}
+                      className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700"
+                    >
+                      <option value="all">All Products</option>
+                      {products.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} ({p.size})</option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={() => fetchProductAuditLogs()}
+                      className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer shrink-0"
+                      title="Refresh Audit Logs"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Audit Logs Table */}
+                <div className="overflow-x-auto border border-slate-200 rounded-2xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">Date & Time</th>
+                        <th className="p-3">Product</th>
+                        <th className="p-3">Action / Field</th>
+                        <th className="p-3">Previous Value</th>
+                        <th className="p-3">Updated Value</th>
+                        <th className="p-3">Admin & Device</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(() => {
+                        const filtered = productAuditLogs.filter(log => {
+                          const matchesQuery =
+                            log.productName.toLowerCase().includes(productAuditSearchQuery.toLowerCase()) ||
+                            log.changedField.toLowerCase().includes(productAuditSearchQuery.toLowerCase()) ||
+                            log.adminEmail.toLowerCase().includes(productAuditSearchQuery.toLowerCase()) ||
+                            String(log.oldValue).toLowerCase().includes(productAuditSearchQuery.toLowerCase()) ||
+                            String(log.newValue).toLowerCase().includes(productAuditSearchQuery.toLowerCase());
+                          const matchesProduct = productAuditProductFilter === 'all' || log.productId === productAuditProductFilter;
+                          return matchesQuery && matchesProduct;
+                        });
+
+                        if (filtered.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={6} className="p-8 text-center text-slate-400">
+                                <History className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                                <p className="font-semibold text-slate-600">No product audit logs recorded yet.</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">
+                                  Any changes made to products from mobile, tablet, or desktop are automatically logged here.
+                                </p>
+                              </td>
+                            </tr>
+                          );
+                        }
+
+                        return filtered.map(log => (
+                          <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="p-3 text-slate-600 font-mono whitespace-nowrap">
+                              {new Date(log.timestamp).toLocaleDateString('en-IN', {
+                                day: '2-digit',
+                                month: 'short',
+                                year: 'numeric',
+                              })}
+                              <span className="block text-[10px] text-slate-400">
+                                {new Date(log.timestamp).toLocaleTimeString('en-IN', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit'
+                                })}
+                              </span>
+                            </td>
+
+                            <td className="p-3">
+                              <span className="font-bold text-slate-900 block">{log.productName}</span>
+                              <span className="text-[10px] font-mono text-slate-400">{log.productId}</span>
+                            </td>
+
+                            <td className="p-3">
+                              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                                log.changeType === 'created'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : log.changeType === 'deleted'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : 'bg-cyan-100 text-cyan-800'
+                              }`}>
+                                {log.changedField}
+                              </span>
+                              {log.version && (
+                                <span className="text-[9px] text-slate-400 block mt-0.5 font-mono">
+                                  v{log.version}
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="p-3 font-mono text-slate-500 max-w-[140px] truncate" title={String(log.oldValue)}>
+                              {String(log.oldValue || '—')}
+                            </td>
+
+                            <td className="p-3 font-mono font-bold text-emerald-700 max-w-[140px] truncate" title={String(log.newValue)}>
+                              {String(log.newValue || '—')}
+                            </td>
+
+                            <td className="p-3 text-[11px]">
+                              <span className="font-semibold text-slate-800 block">{log.adminEmail}</span>
+                              <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                <Smartphone className="w-3 h-3 text-slate-400" />
+                                {log.deviceInfo || 'Authorized Session'}
+                              </span>
+                            </td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

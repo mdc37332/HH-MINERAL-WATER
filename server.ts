@@ -5,6 +5,7 @@ import {
   getAllProducts,
   upsertProduct,
   deleteProductById,
+  deleteAllProducts,
   getAllOrders,
   createOrder,
   updateOrderStatusInDb,
@@ -17,6 +18,8 @@ import {
   getInvoiceByOrderId,
   createInvoiceInDb,
   getNextInvoiceCount,
+  getAllProductAuditLogs,
+  insertProductAuditLog,
 } from './src/db/queries.ts';
 import { optionalAuth, requireAuth, AuthRequest } from './src/middleware/auth.ts';
 import {
@@ -45,7 +48,7 @@ async function startServer() {
   async function ensureSeedData() {
     try {
       const existingProducts = await getAllProducts();
-      if (existingProducts.length === 0) {
+      if (existingProducts.length === 0 && INITIAL_PRODUCTS.length > 0) {
         console.log('Seeding initial products into Cloud SQL...');
         for (const p of INITIAL_PRODUCTS) {
           await upsertProduct(p);
@@ -97,18 +100,22 @@ async function startServer() {
   app.get('/api/products', async (req, res) => {
     try {
       let productsList = await getAllProducts();
-      if (productsList.length === 0) {
-        // Populate and return fallback initial products
-        for (const p of INITIAL_PRODUCTS) {
-          await upsertProduct(p);
-        }
-        productsList = await getAllProducts();
-      }
       res.json(productsList);
     } catch (error: any) {
       console.error('Failed to get products from Cloud SQL:', error);
       // Fallback to in-memory initial products to ensure flawless UI uptime
       res.json(INITIAL_PRODUCTS);
+    }
+  });
+
+  // Product Audit Logs API (Admin Only)
+  app.get('/api/products/audit-logs', requireAdminAuth, async (req, res) => {
+    try {
+      const logs = await getAllProductAuditLogs();
+      res.json(logs);
+    } catch (error: any) {
+      console.error('Failed to get product audit logs:', error);
+      res.json([]);
     }
   });
 
@@ -118,8 +125,62 @@ async function startServer() {
       if (!product.id || !product.name || !product.size) {
         return res.status(400).json({ error: 'Invalid product payload' });
       }
-      const saved = await upsertProduct(product);
-      logAuditEvent('ADMIN_PRODUCT_UPDATED', `Product updated or created: ${product.name} (${product.size}) - ₹${product.price}`);
+
+      const adminSession = (req as any).adminSession;
+      const adminEmail = adminSession?.adminEmail || AUTHORIZED_ADMIN_EMAIL;
+      const adminName = 'Authorized Admin';
+      const userAgent = (req.headers['user-agent'] || 'Browser').slice(0, 100);
+      const deviceInfo = /Mobile|Android|iPhone/i.test(userAgent) ? 'Mobile Device' : /Tablet|iPad/i.test(userAgent) ? 'Tablet' : 'Desktop Browser';
+
+      // Fetch existing for audit log diff
+      const existingList = await getAllProducts();
+      const existing = existingList.find(p => p.id === product.id);
+
+      const saved = await upsertProduct(product, adminEmail);
+
+      // Record audit diffs
+      const now = new Date().toISOString();
+      if (existing) {
+        const fieldsToTrack: (keyof Product)[] = [
+          'name', 'price', 'mrp', 'customDesignPrice', 'size', 'category',
+          'inStock', 'stockStatus', 'stockCount', 'discountPercent', 'gstRate',
+          'hsnCode', 'image', 'shortDesc', 'description', 'badge', 'casePackSize'
+        ];
+
+        for (const field of fieldsToTrack) {
+          const oldVal = existing[field];
+          const newVal = product[field];
+          if (oldVal !== newVal && (oldVal !== undefined || newVal !== undefined)) {
+            await insertProductAuditLog({
+              id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              productId: product.id,
+              productName: product.name,
+              changedField: String(field),
+              oldValue: oldVal !== undefined ? (typeof oldVal === 'object' ? JSON.stringify(oldVal) : String(oldVal)) : 'None',
+              newValue: newVal !== undefined ? (typeof newVal === 'object' ? JSON.stringify(newVal) : String(newVal)) : 'None',
+              adminEmail,
+              adminName,
+              timestamp: now,
+              deviceInfo
+            });
+          }
+        }
+      } else {
+        await insertProductAuditLog({
+          id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          productId: product.id,
+          productName: product.name,
+          changedField: 'PRODUCT_CREATED',
+          oldValue: 'None (New Variant)',
+          newValue: `${product.size} created @ ₹${product.price}`,
+          adminEmail,
+          adminName,
+          timestamp: now,
+          deviceInfo
+        });
+      }
+
+      logAuditEvent('ADMIN_PRODUCT_UPDATED', `Product updated or created: ${product.name} (${product.size}) - ₹${product.price} by ${adminEmail}`);
       res.json(saved);
     } catch (error: any) {
       console.error('Failed to save product:', error);
@@ -127,10 +188,50 @@ async function startServer() {
     }
   });
 
+  // Delete All Products (Admin Only)
+  app.delete('/api/products', requireAdminAuth, async (req, res) => {
+    try {
+      const deleted = await deleteAllProducts();
+      const adminSession = (req as any).adminSession;
+      const adminEmail = adminSession?.adminEmail || AUTHORIZED_ADMIN_EMAIL;
+      await insertProductAuditLog({
+        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        productId: 'ALL',
+        productName: 'ALL_PRODUCTS_CATALOG',
+        changedField: 'ALL_PRODUCTS_DELETED',
+        oldValue: 'Catalog active',
+        newValue: 'All products removed from catalog',
+        adminEmail,
+        adminName: 'Authorized Admin',
+        timestamp: new Date().toISOString(),
+        deviceInfo: 'Admin Session'
+      });
+      logAuditEvent('ADMIN_ALL_PRODUCTS_DELETED', 'All products deleted from store catalog');
+      res.json({ success: true, count: deleted.length });
+    } catch (error: any) {
+      console.error('Failed to delete all products:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete all products' });
+    }
+  });
+
   app.delete('/api/products/:id', requireAdminAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const deleted = await deleteProductById(id);
+      const adminSession = (req as any).adminSession;
+      const adminEmail = adminSession?.adminEmail || AUTHORIZED_ADMIN_EMAIL;
+      await insertProductAuditLog({
+        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        productId: id,
+        productName: deleted?.name || id,
+        changedField: 'PRODUCT_DELETED',
+        oldValue: 'Active in Catalog',
+        newValue: 'Deleted from Database',
+        adminEmail,
+        adminName: 'Authorized Admin',
+        timestamp: new Date().toISOString(),
+        deviceInfo: 'Admin Session'
+      });
       logAuditEvent('ADMIN_PRODUCT_DELETED', `Product deleted with ID: ${id}`);
       res.json({ success: true, deleted });
     } catch (error: any) {

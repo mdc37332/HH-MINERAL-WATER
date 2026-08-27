@@ -10,7 +10,8 @@ import {
   Sparkles,
   ShieldCheck,
   Truck,
-  Image as ImageIcon
+  Image as ImageIcon,
+  AlertCircle
 } from 'lucide-react';
 import { CheckoutModal } from './CheckoutModal';
 
@@ -30,6 +31,8 @@ export const CartDrawer: React.FC = () => {
   } = useStore();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const invalidCustomItems = cart.filter(item => item.isCustomDesign && item.quantity < 600);
+  const hasInvalidCustomItem = invalidCustomItems.length > 0;
 
   if (!isCartOpen) return null;
 
@@ -170,59 +173,68 @@ export const CartDrawer: React.FC = () => {
                           )}
 
                           {/* Price & Quantity Controls */}
-                          <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-100">
-                            <div>
-                              <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
-                                <button
-                                  onClick={() => {
-                                    if (isCustom) {
-                                      if (item.quantity <= 1) {
-                                        removeFromCart(item.cartItemId);
-                                      } else {
-                                        const step = item.quantity > 50 ? 50 : item.quantity > 10 ? 10 : 1;
-                                        updateCartItemQty(item.cartItemId, -step);
-                                      }
-                                    } else {
-                                      if (item.quantity <= 12) {
-                                        removeFromCart(item.cartItemId);
-                                      } else {
-                                        updateCartItemQty(item.cartItemId, -12);
-                                      }
-                                    }
-                                  }}
-                                  className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
-                                  title={isCustom ? "Reduce quantity" : "Reduce 12 bottles (1 pack)"}
-                                >
-                                  <Minus className="w-2.5 h-2.5" />
-                                </button>
-                                <span className="px-2 text-center text-xs font-bold text-slate-900">
-                                  {item.quantity.toLocaleString('en-IN')} pcs
-                                </span>
-                                <button
-                                  onClick={() => {
-                                    const step = isCustom ? (item.quantity >= 50 ? 50 : item.quantity >= 10 ? 10 : 1) : 12;
-                                    updateCartItemQty(item.cartItemId, step);
-                                  }}
-                                  className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs"
-                                  title={isCustom ? "Add bottles" : "Add 12 bottles (1 pack)"}
-                                >
-                                  <Plus className="w-2.5 h-2.5" />
-                                </button>
+                          <div className="mt-3 pt-2 border-t border-slate-100 space-y-2">
+                            {isCustom && item.quantity < 600 && (
+                              <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg flex items-center gap-1.5 text-[11px] text-rose-700 font-bold">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+                                <span>Minimum custom design order is 600 pieces.</span>
                               </div>
-                              <span className="text-[10px] text-cyan-800 font-semibold block mt-0.5">
-                                {isCustom
-                                  ? `${item.quantity} Custom Design Bottles`
-                                  : `${Math.ceil(item.quantity / 12)} × 12-pack bundle`}
-                              </span>
-                            </div>
+                            )}
 
-                            <div className="text-right">
-                              <span className="font-heading text-sm font-bold text-slate-900">
-                                ₹{itemTotal.toLocaleString('en-IN')}
-                              </span>
-                              <span className="text-[10px] text-slate-500 block">
-                                (₹{item.unitPrice}/bottle{isCustom ? ' • 2× rate' : ''})
-                              </span>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200">
+                                  <button
+                                    onClick={() => {
+                                      if (isCustom) {
+                                        if (item.quantity <= 600) {
+                                          removeFromCart(item.cartItemId);
+                                        } else {
+                                          const step = item.quantity > 5000 ? 500 : item.quantity > 1000 ? 100 : item.quantity > 600 ? 10 : 1;
+                                          updateCartItemQty(item.cartItemId, -step);
+                                        }
+                                      } else {
+                                        if (item.quantity <= 12) {
+                                          removeFromCart(item.cartItemId);
+                                        } else {
+                                          updateCartItemQty(item.cartItemId, -12);
+                                        }
+                                      }
+                                    }}
+                                    className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs cursor-pointer"
+                                    title={isCustom ? (item.quantity <= 600 ? "Remove from cart" : "Reduce quantity") : "Reduce 12 bottles (1 pack)"}
+                                  >
+                                    <Minus className="w-2.5 h-2.5" />
+                                  </button>
+                                  <span className="px-2 text-center text-xs font-black text-slate-900">
+                                    {item.quantity.toLocaleString('en-IN')} pcs
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      const step = isCustom ? (item.quantity >= 5000 ? 500 : item.quantity >= 1000 ? 100 : 50) : 12;
+                                      updateCartItemQty(item.cartItemId, step);
+                                    }}
+                                    className="w-6 h-6 rounded bg-white text-slate-700 hover:bg-slate-200 flex items-center justify-center font-bold text-xs cursor-pointer"
+                                    title={isCustom ? "Add bottles" : "Add 12 bottles (1 pack)"}
+                                  >
+                                    <Plus className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
+                                <span className="text-[10px] text-cyan-800 font-semibold block mt-0.5">
+                                  {isCustom
+                                    ? `${item.quantity.toLocaleString('en-IN')} Custom Bottles (Min 600 pcs)`
+                                    : `${Math.ceil(item.quantity / 12)} × 12-pack bundle`}
+                                </span>
+                              </div>
+
+                              <div className="text-right">
+                                <span className="font-heading text-sm font-bold text-slate-900">
+                                  ₹{itemTotal.toLocaleString('en-IN')}
+                                </span>
+                                <span className="text-[10px] text-slate-500 block">
+                                  (₹{item.unitPrice}/bottle{isCustom ? ' • 2× rate' : ''})
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -251,11 +263,18 @@ export const CartDrawer: React.FC = () => {
                   </div>
                 )}
 
+                {hasInvalidCustomItem && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-rose-800 text-xs font-bold">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>Minimum custom design order is 600 pieces. Please increase quantity to checkout.</span>
+                  </div>
+                )}
+
                 {/* Pricing Calculation */}
                 <div className="space-y-1.5 text-xs text-slate-600">
                   <div className="flex justify-between">
                     <span>Subtotal</span>
-                    <span className="font-bold text-slate-800">₹{cartSubtotal}</span>
+                    <span className="font-bold text-slate-800">₹{cartSubtotal.toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Delivery Charges</span>
@@ -265,16 +284,21 @@ export const CartDrawer: React.FC = () => {
                   </div>
                   <div className="flex justify-between text-sm pt-2 border-t border-slate-200 font-bold text-slate-900">
                     <span>Grand Total</span>
-                    <span className="font-heading text-xl font-black text-cyan-700">₹{cartTotal}</span>
+                    <span className="font-heading text-xl font-black text-cyan-700">₹{cartTotal.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
 
                 {/* Checkout Trigger */}
                 <button
+                  disabled={hasInvalidCustomItem}
                   onClick={() => setIsCheckoutOpen(true)}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white py-3.5 px-4 rounded-xl font-bold text-sm shadow-lg shadow-cyan-600/20 active:scale-95 transition-all cursor-pointer"
+                  className={`w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-bold text-sm shadow-lg transition-all ${
+                    hasInvalidCustomItem
+                      ? 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'
+                      : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white shadow-cyan-600/20 active:scale-95 cursor-pointer'
+                  }`}
                 >
-                  <span>Proceed to Checkout</span>
+                  <span>{hasInvalidCustomItem ? 'Minimum 600 Pieces Required for Custom Design' : 'Proceed to Checkout'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </button>
               </div>

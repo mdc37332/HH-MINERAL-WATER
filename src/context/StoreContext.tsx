@@ -10,13 +10,15 @@ import {
   CustomerProfile,
   CustomerAddress,
   AuthModalTab,
-  Invoice
+  Invoice,
+  ProductAuditLog
 } from '../types';
 import {
   subscribeToProducts,
   subscribeToOrders,
   saveProductToDb,
   deleteProductFromDb,
+  deleteAllProductsFromDb,
   saveNewOrderToDb,
   updateOrderStatusInDb,
   deleteOrderFromDb,
@@ -29,13 +31,15 @@ import {
   updateCustomerProfileInDb,
   saveCustomerAddressInDb,
   deleteCustomerAddressInDb,
-  logoutCustomer
+  logoutCustomer,
+  subscribeToProductAuditLogs
 } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import {
   fetchProductsApi,
   saveProductApi,
   deleteProductApi,
+  deleteAllProductsApi,
   fetchOrdersApi,
   createOrderApi,
   updateOrderStatusApi,
@@ -49,6 +53,7 @@ import {
   adminLogoutApi,
   adminLogoutAllApi,
   fetchAdminAuditLogsApi,
+  fetchProductAuditLogsApi,
   fetchInvoicesApi,
   fetchInvoiceByOrderIdApi,
   generateInvoiceApi,
@@ -132,9 +137,14 @@ interface StoreContextType {
   setActiveInvoice: (inv: Invoice | null) => void;
   openInvoiceForOrder: (order: Order) => Promise<Invoice | null>;
 
+  // Product Audit Logs
+  productAuditLogs: ProductAuditLog[];
+  fetchProductAuditLogs: () => Promise<ProductAuditLog[]>;
+
   // Admin & Status Actions
   updateProduct: (product: Product) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
+  deleteAllProducts: () => Promise<void>;
   resetProductsToDefault: () => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderStatus, note?: string) => Promise<void>;
   cancelOrder: (orderId: string, reason?: string) => Promise<void>;
@@ -153,7 +163,7 @@ interface StoreContextType {
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [cart, setCart] = useState<CartItem[]>(() => {
     try {
@@ -187,6 +197,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // GST Invoices State
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [activeInvoice, setActiveInvoice] = useState<Invoice | null>(null);
+
+  // Product Audit Logs State
+  const [productAuditLogs, setProductAuditLogs] = useState<ProductAuditLog[]>([]);
 
   // Auth States
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -328,9 +341,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     const unsub = subscribeToProducts(latestProducts => {
-      if (latestProducts && latestProducts.length > 0) {
-        setProducts(latestProducts);
-      }
+      if (!latestProducts) return;
+      setProducts(latestProducts);
+
+      // Auto synchronize cart items with real-time product price & stock updates
+      setCart(currentCart => {
+        let changed = false;
+        const updatedCart = currentCart.map(item => {
+          const matchingProduct = latestProducts.find(p => p.id === item.productId);
+          if (matchingProduct) {
+            const expectedUnitPrice = item.isCustomDesign
+              ? (matchingProduct.customDesignPrice || matchingProduct.price * 2)
+              : matchingProduct.price;
+            if (item.unitPrice !== expectedUnitPrice || item.product.price !== matchingProduct.price || item.product.inStock !== matchingProduct.inStock) {
+              changed = true;
+              return {
+                ...item,
+                product: matchingProduct,
+                unitPrice: expectedUnitPrice,
+              };
+            }
+          }
+          return item;
+        });
+        return changed ? updatedCart : currentCart;
+      });
     });
     return () => unsub();
   }, []);
@@ -342,6 +377,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
     return () => unsub();
   }, []);
+
+  // Subscribe to real-time product audit logs
+  useEffect(() => {
+    const unsub = subscribeToProductAuditLogs(latestLogs => {
+      setProductAuditLogs(latestLogs);
+    });
+    return () => unsub();
+  }, []);
+
+  const fetchProductAuditLogs = async (): Promise<ProductAuditLog[]> => {
+    try {
+      const logs = await fetchProductAuditLogsApi(adminToken || '801734');
+      if (logs && logs.length > 0) {
+        setProductAuditLogs(logs);
+        return logs;
+      }
+      return productAuditLogs;
+    } catch {
+      return productAuditLogs;
+    }
+  };
 
   // Toast Helper
   const showToast = (title: string, message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
@@ -654,6 +710,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Update Product from Admin
   const updateProduct = async (product: Product) => {
+    const adminIdentity = adminEmail || 'mdhussain170707@gmail.com';
     // 1. Optimistic immediate local state update
     setProducts(prev => {
       const idx = prev.findIndex(p => p.id === product.id);
@@ -689,15 +746,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return nextList;
         });
       }
-      await saveProductToDb(product);
+      await saveProductToDb(product, adminIdentity, 'Authorized Admin');
     } catch (err) {
       console.warn('Backend sync warning for product:', err);
     }
-    showToast('Catalog Updated', `${product.name} (${product.size}) saved and synced.`, 'success');
+    showToast('Catalog Updated', `${product.name} (${product.size}) saved and synced across all devices.`, 'success');
   };
 
   // Delete Product from Admin
   const deleteProduct = async (productId: string) => {
+    const adminIdentity = adminEmail || 'mdhussain170707@gmail.com';
+    const targetProduct = products.find(p => p.id === productId);
     setProducts(prev => {
       const filtered = prev.filter(p => p.id !== productId);
       try {
@@ -708,13 +767,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       await Promise.allSettled([
-        deleteProductFromDb(productId),
+        deleteProductFromDb(productId, adminIdentity, targetProduct?.name || 'Bottle Product'),
         deleteProductApi(productId, adminToken || '801734'),
       ]);
     } catch (err) {
       console.warn('Backend delete error for product:', err);
     }
-    showToast('Product Removed', 'Product has been removed from the catalog.', 'info');
+    showToast('Product Removed', 'Product has been removed from the catalog across all devices.', 'info');
+  };
+
+  // Delete All Products from Catalog
+  const deleteAllProducts = async () => {
+    const adminIdentity = adminEmail || 'mdhussain170707@gmail.com';
+    setProducts([]);
+    try {
+      localStorage.setItem('hh_mineral_products_v1', JSON.stringify([]));
+      localStorage.removeItem('hh_mineral_products_v1');
+      localStorage.removeItem('hh_products_v1');
+      await Promise.allSettled([
+        deleteAllProductsFromDb(adminIdentity),
+        deleteAllProductsApi(adminToken || '801734'),
+      ]);
+    } catch (err) {
+      console.warn('Backend delete all products error:', err);
+    }
+    showToast('Catalog Cleared', 'All products have been deleted from the catalog.', 'info');
   };
 
   // Reset Products to factory defaults
@@ -976,8 +1053,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setActiveInvoice,
         openInvoiceForOrder,
 
+        // Product Audit Logs
+        productAuditLogs,
+        fetchProductAuditLogs,
+
         updateProduct,
         deleteProduct,
+        deleteAllProducts,
         resetProductsToDefault,
         updateOrderStatus,
         cancelOrder,

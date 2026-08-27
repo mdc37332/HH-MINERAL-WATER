@@ -1,0 +1,118 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "HH Mineral Water bottle products in catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 200 },
+        "size": { "type": "string", "maxLength": 50 },
+        "price": { "type": "number" },
+        "mrp": { "type": "number" },
+        "image": { "type": "string", "maxLength": 2000000 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "shortDesc": { "type": "string", "maxLength": 500 },
+        "inStock": { "type": "boolean" },
+        "minOrderQty": { "type": "number" },
+        "category": { "type": "string", "maxLength": 100 },
+        "badge": { "type": "string", "maxLength": 100 },
+        "casePackSize": { "type": "number" },
+        "customDesignPrice": { "type": "number" },
+        "gstRate": { "type": "number" },
+        "hsnCode": { "type": "string", "maxLength": 20 },
+        "discountPercent": { "type": "number" },
+        "stockCount": { "type": "number" },
+        "stockStatus": { "type": "string", "maxLength": 50 },
+        "version": { "type": "number" },
+        "updatedAt": { "type": "string", "maxLength": 100 },
+        "updatedBy": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["id", "name", "size", "price"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer bottle order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 100 },
+        "subtotal": { "type": "number" },
+        "deliveryCharge": { "type": "number" },
+        "discount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "paymentMethod": { "type": "string", "maxLength": 100 },
+        "paymentStatus": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "createdAt", "totalAmount", "status"]
+    },
+    "ProductAuditLog": {
+      "title": "ProductAuditLog",
+      "description": "Audit record of product edits by administrators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 200 },
+        "changedField": { "type": "string", "maxLength": 100 },
+        "oldValue": { "type": "string", "maxLength": 5000 },
+        "newValue": { "type": "string", "maxLength": 5000 },
+        "adminEmail": { "type": "string", "maxLength": 200 },
+        "adminName": { "type": "string", "maxLength": 200 },
+        "timestamp": { "type": "string", "maxLength": 100 },
+        "deviceInfo": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["id", "productId", "changedField", "timestamp"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Customer profile",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "displayName": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "role": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["uid"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Store operational and visual settings",
+      "type": "object",
+      "properties": {
+        "ownerWhatsApp": { "type": "string", "maxLength": 50 },
+        "helplinePhone": { "type": "string", "maxLength": 50 },
+        "contactEmail": { "type": "string", "maxLength": 200 },
+        "address": { "type": "string", "maxLength": 500 },
+        "freeDeliveryMinAmount": { "type": "number" },
+        "defaultDeliveryCharge": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Global product catalog with real-time sync across all devices"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Store customer orders"
+    },
+    "/product_audit_logs/{logId}": {
+      "schema": "ProductAuditLog",
+      "description": "Audit trail of all product edits by administrators"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Customer profiles and addresses"
+    },
+    "/settings/{settingId}": {
+      "schema": "Settings",
+      "description": "Global store settings"
+    }
+  }
+}
