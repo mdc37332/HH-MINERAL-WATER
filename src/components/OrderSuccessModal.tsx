@@ -13,7 +13,10 @@ import {
   Phone,
   Package,
   Calendar,
-  X
+  X,
+  Receipt,
+  FileText,
+  Printer
 } from 'lucide-react';
 import { getWhatsAppDirectUrl, OWNER_WHATSAPP_NUMBER } from '../lib/whatsapp';
 
@@ -23,7 +26,7 @@ interface Props {
 }
 
 export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
-  const { setCurrentSection, setTrackOrderId, triggerWhatsAppNotification, showToast } = useStore();
+  const { setCurrentSection, setTrackOrderId, triggerWhatsAppNotification, showToast, openInvoiceForOrder } = useStore();
   const [copied, setCopied] = useState(false);
   const [isRetryingWhatsApp, setIsRetryingWhatsApp] = useState(false);
 
@@ -53,6 +56,10 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleViewInvoice = async () => {
+    await openInvoiceForOrder(order);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
       <div className="relative max-w-xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-200 my-6 animate-in zoom-in-95 duration-300">
@@ -78,7 +85,7 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
             <span>Order ID: {order.id}</span>
             <button
               onClick={handleCopyId}
-              className="text-cyan-200 hover:text-white p-0.5 transition-colors"
+              className="text-cyan-200 hover:text-white p-0.5 transition-colors cursor-pointer"
               title="Copy Order ID"
             >
               {copied ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
@@ -87,19 +94,55 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
         </div>
 
         {/* Content Body */}
-        <div className="p-6 sm:p-8 space-y-6">
+        <div className="p-6 sm:p-8 space-y-5">
+          
+          {/* Official GST Tax Invoice Card */}
+          <div className="bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 text-white rounded-2xl p-4.5 border border-cyan-800/40 shadow-md space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 flex items-center justify-center shrink-0">
+                  <Receipt className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-cyan-300">
+                      GST Tax Invoice Ready
+                    </h4>
+                    <span className="text-[10px] bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 px-2 py-0.2 rounded font-mono font-bold">
+                      {order.invoiceNumber || 'HH/2026/' + order.id.replace(/\D/g, '').slice(-6).padStart(6, '0')}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Compliant with Indian GST rules (HSN 2201 • 18% GST itemized)
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleViewInvoice}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs py-2 px-3 rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>View & Print Tax Invoice</span>
+              </button>
+            </div>
+          </div>
+
           {/* WhatsApp Owner Dispatch Notice */}
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4.5 space-y-3">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2.5">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                  <MessageCircle className="w-5 h-5" />
+                <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <MessageCircle className="w-4 h-4" />
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
                     WhatsApp Order Confirmation
                   </h4>
-                  <p className="text-xs text-emerald-800">
+                  <p className="text-[11px] text-emerald-800">
                     Dispatched to HH Owner WhatsApp: <strong>{OWNER_WHATSAPP_NUMBER}</strong>
                   </p>
                 </div>
@@ -109,25 +152,25 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
               </span>
             </div>
 
-            <p className="text-xs text-emerald-900 leading-relaxed">
-              A formatted confirmation with your products, customer details, and original uploaded images is queued for HH bottling dispatch.
+            <p className="text-[11px] text-emerald-900 leading-relaxed">
+              A formatted confirmation with your products, customer details, and invoice reference is queued for HH bottling dispatch.
             </p>
 
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-0.5">
               <button
                 type="button"
                 onClick={handleOpenWhatsApp}
-                className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-xl shadow-xs transition-all cursor-pointer"
+                className="flex-1 inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-3 rounded-xl shadow-xs transition-all cursor-pointer"
               >
-                <MessageCircle className="w-4 h-4" />
-                <span>Open in WhatsApp (8017341130)</span>
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>Open in WhatsApp</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleRetryWhatsApp}
                 disabled={isRetryingWhatsApp}
-                className="px-3 py-2.5 rounded-xl border border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50 text-xs font-semibold transition-colors"
+                className="px-3 py-2 rounded-xl border border-emerald-300 text-emerald-800 bg-white hover:bg-emerald-50 text-xs font-semibold transition-colors cursor-pointer"
               >
                 {isRetryingWhatsApp ? 'Syncing...' : 'Resend Alert'}
               </button>
@@ -150,7 +193,7 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <button
               onClick={handleTrackThisOrder}
               className="flex-1 flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-3 px-4 rounded-xl shadow-md transition-all cursor-pointer"
@@ -161,7 +204,7 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
 
             <button
               onClick={onClose}
-              className="px-5 py-3 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-colors"
+              className="px-5 py-3 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-colors cursor-pointer"
             >
               Continue Shopping
             </button>
@@ -171,3 +214,4 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
     </div>
   );
 };
+

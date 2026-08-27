@@ -62,6 +62,7 @@ export function formatOrderWhatsAppMessage(order: Order): string {
   return `🛒 NEW HH MINERAL WATER ORDER
 
 Order ID: ${order.id}
+Invoice No: ${order.invoiceNumber || 'HH/2026/' + order.id.replace(/\D/g, '').slice(-6).padStart(6, '0')}
 Customer Name: ${order.customer.name}
 Customer Phone: ${order.customer.phone}
 Delivery Address: ${fullAddress}
@@ -73,11 +74,45 @@ Custom Design: ${customDesignFlag}
 Original Image: ${originalImageFlag}
 Special Instructions: ${specialInstructionsText}
 
+Taxable Value + GST: Included
 Total Amount: ₹${order.totalAmount}
 Payment Method: ${order.paymentMethod}
 Order Time: ${orderTimeStr}
 
+📄 Official GST Tax Invoice has been generated automatically and is available for viewing/download.
 Please check the HH OWNER APP for complete order details.`;
+}
+
+/**
+ * Formats a message for sharing the GST Tax Invoice directly via WhatsApp.
+ */
+export function formatInvoiceWhatsAppShareMessage(order: Order, invoiceNumber: string, grandTotal: number): string {
+  return `🧾 *HH MINERAL WATER — TAX INVOICE*
+
+Dear *${order.customer.name}*,
+Thank you for ordering with *HH MINERAL WATER*.
+
+*Invoice Details:*
+• *Invoice No:* ${invoiceNumber}
+• *Order ID:* ${order.id}
+• *Total Amount:* ₹${grandTotal}
+• *Payment:* ${order.paymentMethod}
+• *Delivery to:* ${order.customer.address}, ${order.customer.city} - ${order.customer.pincode}
+
+Your official GST Tax Invoice is available in your HH Mineral Water customer portal.
+
+_Pure Hydration • High Mineral Balance • Pristine Quality_
+*HH MINERAL WATER BOTTLING & PACKAGING*`;
+}
+
+/**
+ * Creates a WhatsApp share link for customer invoice.
+ */
+export function getInvoiceShareWhatsAppUrl(order: Order, invoiceNumber: string, grandTotal: number, customerPhone?: string): string {
+  const message = formatInvoiceWhatsAppShareMessage(order, invoiceNumber, grandTotal);
+  const encoded = encodeURIComponent(message);
+  const target = customerPhone ? (customerPhone.startsWith('91') ? customerPhone : `91${customerPhone.replace(/\D/g, '')}`) : '';
+  return target ? `https://wa.me/${target}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
 }
 
 /**

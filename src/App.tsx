@@ -14,6 +14,10 @@ import { AdminPanel } from './components/AdminPanel';
 import { ContactSection } from './components/ContactSection';
 import { CartDrawer } from './components/CartDrawer';
 import { ProductDetailModal } from './components/ProductDetailModal';
+import { CustomerProfileSection } from './components/CustomerProfileSection';
+import { AuthModal } from './components/AuthModal';
+import { OrderSuccessModal } from './components/OrderSuccessModal';
+import { GstInvoiceModal } from './components/GstInvoiceModal';
 import { ToastContainer } from './components/ToastContainer';
 import { Footer } from './components/Footer';
 import {
@@ -36,7 +40,11 @@ const MainContent: React.FC = () => {
     currentSection,
     setCurrentSection,
     selectedProductForDetail,
-    setSelectedProductForDetail
+    setSelectedProductForDetail,
+    recentCreatedOrder,
+    setRecentCreatedOrder,
+    activeInvoice,
+    setActiveInvoice
   } = useStore();
 
   return (
@@ -158,6 +166,12 @@ const MainContent: React.FC = () => {
           </div>
         )}
 
+        {currentSection === 'profile' && (
+          <div className="py-6">
+            <CustomerProfileSection />
+          </div>
+        )}
+
         {currentSection === 'admin' && (
           <div className="py-6">
             <AdminPanel />
@@ -181,6 +195,26 @@ const MainContent: React.FC = () => {
 
       {/* Cart Slide-Over Drawer */}
       <CartDrawer />
+
+      {/* Global Auth Modal */}
+      <AuthModal />
+
+      {/* Order Success Popup */}
+      {recentCreatedOrder && (
+        <OrderSuccessModal
+          order={recentCreatedOrder}
+          onClose={() => setRecentCreatedOrder(null)}
+        />
+      )}
+
+      {/* Official GST Tax Invoice Modal */}
+      {activeInvoice && (
+        <GstInvoiceModal
+          invoice={activeInvoice}
+          isOpen={!!activeInvoice}
+          onClose={() => setActiveInvoice(null)}
+        />
+      )}
 
       {/* Toast Notifications */}
       <ToastContainer />

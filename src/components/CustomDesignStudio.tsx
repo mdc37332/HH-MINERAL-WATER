@@ -20,7 +20,11 @@ import {
   Briefcase,
   Building2,
   Gift,
-  HelpCircle
+  HelpCircle,
+  ShieldCheck,
+  Image as ImageIcon,
+  Check,
+  Lock
 } from 'lucide-react';
 
 export const CustomDesignStudio: React.FC = () => {
@@ -31,6 +35,8 @@ export const CustomDesignStudio: React.FC = () => {
     addToCart,
     setIsCartOpen,
     setCurrentSection,
+    currentUser,
+    openAuthModal,
     showToast
   } = useStore();
 
@@ -82,6 +88,11 @@ export const CustomDesignStudio: React.FC = () => {
   ];
 
   const handleAddToCart = () => {
+    if (!currentUser) {
+      openAuthModal('login', 'Please sign in or create an account to save your custom design order.');
+      return;
+    }
+
     if (!businessName.trim() && uploadedImages.length === 0) {
       showToast(
         'Design Incomplete',
@@ -115,6 +126,7 @@ export const CustomDesignStudio: React.FC = () => {
 
     addToCart(activeProduct, quantity, customDetails);
     setIsCartOpen(true);
+    showToast('Custom Order Added', `${activeProduct.name} custom order added to your cart.`, 'success');
   };
 
   const totalCalculated = activeProduct.price * quantity;
@@ -138,7 +150,7 @@ export const CustomDesignStudio: React.FC = () => {
       {/* Main Studio Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left Column: Form & Step Workflow (7 cols) */}
-        <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-sm space-y-8">
+        <div className="lg:col-span-7 bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-8">
           {/* Step Progress Indicators */}
           <div className="grid grid-cols-4 gap-2 pb-6 border-b border-slate-100">
             {[
@@ -193,7 +205,7 @@ export const CustomDesignStudio: React.FC = () => {
                       onClick={() => setSelectedProductId(prod.id)}
                       className={`relative p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col items-center text-center ${
                         isSelected
-                          ? 'border-cyan-600 bg-cyan-50/60 shadow-sm'
+                          ? 'border-cyan-600 bg-cyan-50/60 shadow-xs'
                           : 'border-slate-200 hover:border-cyan-300 bg-white'
                       }`}
                     >
@@ -202,7 +214,7 @@ export const CustomDesignStudio: React.FC = () => {
                         <img
                           src={prod.image}
                           alt={prod.name}
-                          className="max-h-full object-contain filter drop-shadow-sm"
+                          className="max-h-full object-contain"
                         />
                       </div>
                       <span className="font-heading text-sm font-extrabold text-cyan-700">₹{prod.price} / bottle</span>
@@ -271,6 +283,23 @@ export const CustomDesignStudio: React.FC = () => {
                   Upload your high-res logo or artwork. Stored in pristine original quality for HH bottling plant.
                 </p>
               </div>
+
+              {/* Login check alert if not signed in */}
+              {!currentUser && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs text-amber-800">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-amber-600" />
+                    <span>Sign in to save and link your high-res images to your customer account.</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openAuthModal('login', 'Sign in to upload and link custom images')}
+                    className="font-bold underline text-amber-900 cursor-pointer shrink-0 ml-2"
+                  >
+                    Sign In
+                  </button>
+                </div>
+              )}
 
               {/* Original Image Uploader Component */}
               <OriginalImageUploader
@@ -563,121 +592,157 @@ export const CustomDesignStudio: React.FC = () => {
           )}
         </div>
 
-        {/* Right Column: Live Interactive 3D Bottle Mockup Preview (5 cols) */}
+        {/* Right Column: Clean & Professional 2D Product & Label Production Specification (5 cols) */}
         <div className="lg:col-span-5 sticky top-24 space-y-4">
-          <div className="bg-gradient-to-b from-slate-900 via-slate-800 to-cyan-950 rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-slate-800 relative overflow-hidden">
-            {/* Background Light Glow */}
-            <div className="absolute -top-24 -right-24 w-64 h-64 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none" />
-
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
-                <Eye className="w-3.5 h-3.5" />
-                Live 3D Bottle Preview
-              </span>
-              <span className="text-[10px] font-bold bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded-full border border-cyan-400/30">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-xs space-y-5">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-cyan-50 text-cyan-700 flex items-center justify-center">
+                  <Palette className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-heading text-sm font-bold text-slate-900">
+                    Label & Product Preview
+                  </h3>
+                  <p className="text-[11px] text-slate-500">Real-time label composition</p>
+                </div>
+              </div>
+              <span className="text-xs font-extrabold bg-cyan-100 text-cyan-800 px-2.5 py-1 rounded-full">
                 {activeProduct.size}
               </span>
             </div>
 
-            {/* Bottle Mockup Stage */}
-            <div className="relative h-80 sm:h-96 w-full flex items-center justify-center">
-              {/* Bottle Outline Container */}
-              <div className="relative w-48 h-full flex flex-col items-center justify-center">
-                {/* Bottle Cap */}
-                <div
-                  className="w-10 h-7 rounded-t-md border border-white/20 shadow-md transition-colors duration-300 z-10"
-                  style={{ backgroundColor: labelThemeColor === '#ffffff' ? '#0284c7' : labelThemeColor }}
-                >
-                  <div className="w-full h-1 bg-white/30 mt-1" />
+            {/* Realistic Product Image & Label Presentation Card */}
+            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 flex flex-col sm:flex-row items-center gap-4">
+              <div className="w-28 h-40 bg-white rounded-xl border border-slate-200 p-2 flex items-center justify-center shrink-0 shadow-2xs">
+                <img
+                  src={activeProduct.image}
+                  alt={activeProduct.name}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+
+              <div className="flex-1 space-y-2 text-xs w-full">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 text-sm">{activeProduct.name}</span>
+                  <span className="text-cyan-700 font-bold">₹{activeProduct.price}/ea</span>
                 </div>
+                <p className="text-slate-500 text-[11px] leading-relaxed">
+                  Natural Mineral Water with pH 7.2 Balanced Electrolytes and 7-stage filtration.
+                </p>
+                <div className="pt-1 flex flex-wrap gap-1.5">
+                  <span className="bg-white border border-slate-200 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                    {finishType}
+                  </span>
+                  <span className="bg-white border border-slate-200 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded-md">
+                    {eventType}
+                  </span>
+                </div>
+              </div>
+            </div>
 
-                {/* Bottle Neck */}
-                <div className="w-8 h-8 bg-gradient-to-r from-white/30 via-white/50 to-white/20 border-x border-white/30" />
+            {/* Custom Label Layout Card */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-700">Custom Label Design Details</span>
+                <span className="text-[11px] text-slate-500">Theme: {labelThemeColor}</span>
+              </div>
 
-                {/* Bottle Shoulder */}
-                <div className="w-36 h-10 bg-gradient-to-r from-cyan-100/40 via-white/60 to-cyan-100/30 rounded-t-3xl border-t border-x border-white/40 shadow-inner" />
+              <div
+                className="rounded-2xl p-5 border transition-all duration-200 shadow-xs relative overflow-hidden"
+                style={{
+                  backgroundColor: labelThemeColor,
+                  color: labelThemeColor === '#ffffff' ? '#0f172a' : '#ffffff',
+                  borderColor: labelThemeColor === '#ffffff' ? '#cbd5e1' : 'transparent'
+                }}
+              >
+                {/* Finish Badge */}
+                {finishType.includes('Foil') && (
+                  <div className="absolute top-2 right-2 bg-amber-400/90 text-amber-950 font-bold text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
+                    ★ Foil Accent
+                  </div>
+                )}
 
-                {/* Bottle Body & Custom Label */}
-                <div className="relative w-40 h-48 bg-gradient-to-r from-cyan-50/30 via-white/50 to-cyan-50/20 border-x border-white/40 flex items-center justify-center overflow-hidden shadow-2xl">
-                  {/* Water Shimmer Highlight */}
-                  <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/10 to-transparent pointer-events-none" />
+                <div className="flex items-center gap-4">
+                  {/* Uploaded Logo or Brand Icon */}
+                  {uploadedImages.length > 0 ? (
+                    <div className="w-16 h-16 rounded-xl bg-white/15 backdrop-blur-xs p-1 flex items-center justify-center border border-white/30 shrink-0 overflow-hidden">
+                      <img
+                        src={uploadedImages[0].url}
+                        alt="Uploaded logo"
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-white/20 flex items-center justify-center border border-white/20 shrink-0">
+                      <Droplet className="w-8 h-8 opacity-80" />
+                    </div>
+                  )}
 
-                  {/* CUSTOM LABEL AREA */}
-                  <div
-                    className="w-36 py-3 px-2.5 rounded-md shadow-lg border border-white/30 flex flex-col items-center justify-center text-center transition-all duration-300 relative overflow-hidden"
-                    style={{
-                      backgroundColor: labelThemeColor,
-                      color: labelThemeColor === '#ffffff' ? '#0f172a' : '#ffffff'
-                    }}
-                  >
-                    {/* Finish overlay badge */}
-                    {finishType.includes('Foil') && (
-                      <div className="absolute inset-0 bg-gradient-to-r from-amber-300/20 via-yellow-100/40 to-amber-300/20 pointer-events-none" />
-                    )}
-
-                    {/* Logo Image if uploaded */}
-                    {uploadedImages.length > 0 ? (
-                      <div className="w-14 h-10 mb-1 flex items-center justify-center overflow-hidden rounded bg-white/10 backdrop-blur-xs p-0.5">
-                        <img
-                          src={uploadedImages[0].url}
-                          alt="Custom logo"
-                          className="max-h-full max-w-full object-contain"
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center mb-1">
-                        <Droplet className="w-4 h-4" />
-                      </div>
-                    )}
-
-                    {/* Custom Text */}
-                    <p className="text-[11px] font-black tracking-tight leading-tight line-clamp-1">
-                      {businessName || 'YOUR BRAND HERE'}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-black tracking-tight leading-snug truncate">
+                      {businessName || 'YOUR BRAND / EVENT'}
                     </p>
-
-                    {tagline && (
-                      <p className="text-[8px] opacity-90 line-clamp-1 mt-0.5">
-                        {tagline}
+                    {tagline ? (
+                      <p className="text-xs opacity-90 truncate mt-0.5">{tagline}</p>
+                    ) : (
+                      <p className="text-[11px] opacity-70 italic mt-0.5">Custom Tagline Here</p>
+                    )}
+                    {dateOrVenue && (
+                      <p className="text-[10px] opacity-80 mt-1 flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        <span className="truncate">{dateOrVenue}</span>
                       </p>
                     )}
-
-                    <div className="mt-1 pt-1 border-t border-current/20 w-full flex items-center justify-between text-[7px] font-semibold opacity-80">
-                      <span>HH NATURAL</span>
-                      <span>{activeProduct.size}</span>
-                    </div>
                   </div>
                 </div>
 
-                {/* Bottle Base */}
-                <div className="w-36 h-6 bg-gradient-to-r from-cyan-100/40 via-white/60 to-cyan-100/30 rounded-b-2xl border-b border-x border-white/40 shadow-md" />
+                <div className="mt-4 pt-3 border-t border-current/20 flex items-center justify-between text-[10px] font-semibold opacity-85">
+                  <span>HH PURE MINERAL WATER</span>
+                  <span>{activeProduct.size} • ZERO SODIUM</span>
+                </div>
               </div>
             </div>
 
-            {/* Live Spec Tags */}
-            <div className="mt-4 pt-4 border-t border-slate-700/80 flex items-center justify-between text-xs text-slate-300">
-              <div>
-                <span className="block text-[10px] text-slate-400">Finish</span>
-                <span className="font-semibold text-cyan-300">{finishType}</span>
+            {/* Uploaded High-Res Attachments Summary */}
+            {uploadedImages.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <span className="font-bold text-xs text-slate-700 flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-cyan-600" />
+                  <span>Original High-Resolution Image Files ({uploadedImages.length})</span>
+                </span>
+                <div className="space-y-1.5">
+                  {uploadedImages.map((img, idx) => (
+                    <div
+                      key={img.id}
+                      className="p-2 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <img src={img.url} alt={img.name} className="w-7 h-7 object-contain bg-white rounded border border-slate-200 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-800 truncate text-[11px]">{img.name}</p>
+                          <p className="text-[10px] text-slate-400">{img.sizeKb} KB • {img.type.split('/')[1]?.toUpperCase() || 'IMG'}</p>
+                        </div>
+                      </div>
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0">
+                        High-Res Original
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div>
-                <span className="block text-[10px] text-slate-400">Resolution</span>
-                <span className="font-semibold text-emerald-400">300 DPI High-Res</span>
-              </div>
-              <div>
-                <span className="block text-[10px] text-slate-400">Estimated Total</span>
-                <span className="font-bold text-white text-sm">₹{totalCalculated}</span>
-              </div>
-            </div>
-          </div>
+            )}
 
-          {/* Value proposition pill */}
-          <div className="bg-cyan-50 rounded-2xl p-4 border border-cyan-200 text-cyan-950 flex items-start gap-3">
-            <CheckCircle2 className="w-5 h-5 text-cyan-600 shrink-0 mt-0.5" />
-            <div className="text-xs leading-relaxed">
-              <p className="font-bold">Original High-Quality Files Preserved</p>
-              <p className="text-slate-600 mt-0.5">
-                Your full-resolution images are directly delivered to the HH Owner (8017341130) for precision printing.
-              </p>
+            {/* Quality and Dispatch Guarantee */}
+            <div className="bg-cyan-50/80 rounded-2xl p-4 border border-cyan-200 text-cyan-950 flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-cyan-700 shrink-0 mt-0.5" />
+              <div className="text-xs leading-relaxed">
+                <p className="font-bold text-cyan-900">Original High-Definition Printing</p>
+                <p className="text-slate-600 mt-0.5">
+                  Your full-resolution images are preserved without lossy compression and directly transferred to HH Bottling Plant for precise offset cylinder printing.
+                </p>
+              </div>
             </div>
           </div>
         </div>

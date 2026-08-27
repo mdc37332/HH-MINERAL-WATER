@@ -4,14 +4,29 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
   getDocs,
   onSnapshot,
   updateDoc,
+  deleteDoc,
   query,
-  orderBy
+  orderBy,
+  where
 } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { Product, Order, OrderStatus, AdminSettings } from '../types';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile,
+  updatePassword,
+  User
+} from 'firebase/auth';
+import { Product, Order, OrderStatus, AdminSettings, CustomerProfile, CustomerAddress } from '../types';
 import { INITIAL_PRODUCTS, DEFAULT_ADMIN_SETTINGS } from '../data/initialProducts';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
@@ -28,6 +43,7 @@ const firebaseConfig = {
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 // If a specific database ID was created
 const databaseId = firebaseConfigJson.firestoreDatabaseId || '(default)';
@@ -37,6 +53,242 @@ export const db = getFirestore(app, databaseId);
 const LS_PRODUCTS_KEY = 'hh_mineral_products_v1';
 const LS_ORDERS_KEY = 'hh_mineral_orders_v1';
 const LS_SETTINGS_KEY = 'hh_mineral_settings_v1';
+const LS_PROFILE_KEY = 'hh_mineral_profile_v1';
+
+// ----------------------------------------------------
+// Customer Authentication Functions
+// ----------------------------------------------------
+
+export async function loginWithGoogle(): Promise<User> {
+  const result = await signInWithPopup(auth, googleProvider);
+  const user = result.user;
+  // Ensure profile doc exists in Firestore
+  await ensureCustomerProfileDoc(user);
+  return user;
+}
+
+export async function registerWithEmail(
+  email: string,
+  pass: string,
+  fullName: string,
+  mobileNumber: string
+): Promise<User> {
+  const cred = await createUserWithEmailAndPassword(auth, email, pass);
+  const user = cred.user;
+  
+  // Set display name in Firebase Auth
+  await updateProfile(user, { displayName: fullName });
+
+  // Save full profile in Firestore
+  const newProfile: CustomerProfile = {
+    uid: user.uid,
+    email: user.email || email,
+    displayName: fullName,
+    phone: mobileNumber,
+    addresses: [],
+    createdAt: new Date().toISOString(),
+    role: 'customer'
+  };
+
+  await setDoc(doc(db, 'users', user.uid), newProfile, { merge: true });
+  localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(newProfile));
+
+  return user;
+}
+
+export async function loginWithEmail(email: string, pass: string): Promise<User> {
+  const cred = await signInWithEmailAndPassword(auth, email, pass);
+  const user = cred.user;
+  await ensureCustomerProfileDoc(user);
+  return user;
+}
+
+export async function sendResetPassword(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email);
+}
+
+export async function changeCustomerPassword(newPass: string): Promise<void> {
+  if (!auth.currentUser) throw new Error('No authenticated customer found');
+  await updatePassword(auth.currentUser, newPass);
+}
+
+export async function logoutCustomer(): Promise<void> {
+  await signOut(auth);
+  localStorage.removeItem(LS_PROFILE_KEY);
+}
+
+// ----------------------------------------------------
+// Customer Profile & Address Management
+// ----------------------------------------------------
+
+export async function ensureCustomerProfileDoc(user: User): Promise<CustomerProfile> {
+  try {
+    const userDocRef = doc(db, 'users', user.uid);
+    const snap = await getDoc(userDocRef);
+    if (snap.exists()) {
+      const data = snap.data() as CustomerProfile;
+      localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(data));
+      return data;
+    } else {
+      const defaultProfile: CustomerProfile = {
+        uid: user.uid,
+        email: user.email || '',
+        displayName: user.displayName || 'Customer',
+        phone: user.phoneNumber || '',
+        addresses: [],
+        createdAt: new Date().toISOString(),
+        role: 'customer'
+      };
+      await setDoc(userDocRef, defaultProfile, { merge: true });
+      localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(defaultProfile));
+      return defaultProfile;
+    }
+  } catch (err) {
+    console.warn('Error fetching or creating user profile in Firestore:', err);
+    const fallbackProfile: CustomerProfile = {
+      uid: user.uid,
+      email: user.email || '',
+      displayName: user.displayName || 'Customer',
+      phone: '',
+      addresses: [],
+      createdAt: new Date().toISOString(),
+      role: 'customer'
+    };
+    return fallbackProfile;
+  }
+}
+
+export function subscribeToCustomerProfile(
+  uid: string,
+  onProfileChange: (profile: CustomerProfile | null) => void
+): () => void {
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    return onSnapshot(
+      userDocRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const profileData = docSnap.data() as CustomerProfile;
+          localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(profileData));
+          onProfileChange(profileData);
+        } else {
+          onProfileChange(null);
+        }
+      },
+      (error) => {
+        console.warn('Customer profile listener error:', error);
+        const cached = localStorage.getItem(LS_PROFILE_KEY);
+        if (cached) {
+          try {
+            onProfileChange(JSON.parse(cached));
+          } catch {
+            onProfileChange(null);
+          }
+        }
+      }
+    );
+  } catch {
+    return () => {};
+  }
+}
+
+export async function updateCustomerProfileInDb(
+  uid: string,
+  data: Partial<Pick<CustomerProfile, 'displayName' | 'phone' | 'email'>>
+): Promise<void> {
+  // Update in Firestore
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    await updateDoc(userDocRef, data);
+  } catch (err) {
+    console.warn('Firestore user profile update error:', err);
+  }
+
+  // Update local cache
+  try {
+    const cached = localStorage.getItem(LS_PROFILE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      const updated = { ...parsed, ...data };
+      localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(updated));
+    }
+  } catch {
+    // ignore
+  }
+
+  // Update auth display name if displayName changed
+  if (data.displayName && auth.currentUser) {
+    try {
+      await updateProfile(auth.currentUser, { displayName: data.displayName });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export async function saveCustomerAddressInDb(
+  uid: string,
+  currentAddresses: CustomerAddress[],
+  addressToSave: CustomerAddress
+): Promise<CustomerAddress[]> {
+  let updatedList = [...currentAddresses];
+  const existingIdx = updatedList.findIndex(a => a.id === addressToSave.id);
+
+  if (addressToSave.isDefault) {
+    // Set all others to non-default
+    updatedList = updatedList.map(a => ({ ...a, isDefault: false }));
+  } else if (updatedList.length === 0) {
+    // First address is always default
+    addressToSave.isDefault = true;
+  }
+
+  if (existingIdx >= 0) {
+    updatedList[existingIdx] = addressToSave;
+  } else {
+    updatedList.push(addressToSave);
+  }
+
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    await updateDoc(userDocRef, { addresses: updatedList });
+  } catch (e) {
+    console.warn('Error updating address in Firestore:', e);
+  }
+
+  // Update local cache
+  try {
+    const cached = localStorage.getItem(LS_PROFILE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      parsed.addresses = updatedList;
+      localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(parsed));
+    }
+  } catch {
+    // ignore
+  }
+
+  return updatedList;
+}
+
+export async function deleteCustomerAddressInDb(
+  uid: string,
+  currentAddresses: CustomerAddress[],
+  addressId: string
+): Promise<CustomerAddress[]> {
+  let updatedList = currentAddresses.filter(a => a.id !== addressId);
+  if (updatedList.length > 0 && !updatedList.some(a => a.isDefault)) {
+    updatedList[0].isDefault = true;
+  }
+
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    await updateDoc(userDocRef, { addresses: updatedList });
+  } catch (e) {
+    console.warn('Error deleting address in Firestore:', e);
+  }
+
+  return updatedList;
+}
 
 // Seed Initial Products
 export async function seedInitialProductsIfNeeded(): Promise<Product[]> {
@@ -140,6 +392,29 @@ export async function saveProductToDb(product: Product): Promise<void> {
   }
 }
 
+// Delete Product in DB
+export async function deleteProductFromDb(productId: string): Promise<void> {
+  // Update local cache
+  try {
+    const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+    if (cached) {
+      const list: Product[] = JSON.parse(cached);
+      const filtered = list.filter(p => p.id !== productId);
+      localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(filtered));
+    }
+  } catch {
+    // ignore
+  }
+
+  // Delete from Firestore
+  try {
+    const docRef = doc(db, 'products', productId);
+    await deleteDoc(docRef);
+  } catch (err) {
+    console.warn('Firestore product deletion error:', err);
+  }
+}
+
 // Subscribe to Orders
 export function subscribeToOrders(onOrdersChange: (orders: Order[]) => void): () => void {
   try {
@@ -240,6 +515,29 @@ export async function updateOrderStatusInDb(
     });
   } catch (err) {
     console.warn('Firestore update order status error:', err);
+  }
+}
+
+// Delete Order from DB & Local Storage (Admin Only)
+export async function deleteOrderFromDb(orderId: string): Promise<void> {
+  // Update Local Storage
+  try {
+    const cached = localStorage.getItem(LS_ORDERS_KEY);
+    if (cached) {
+      const list: Order[] = JSON.parse(cached);
+      const filtered = list.filter(o => o.id !== orderId);
+      localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.warn('Local storage error on order deletion:', e);
+  }
+
+  // Delete from Firestore
+  try {
+    const orderDoc = doc(db, 'orders', orderId);
+    await deleteDoc(orderDoc);
+  } catch (err) {
+    console.warn('Firestore delete order error:', err);
   }
 }
 

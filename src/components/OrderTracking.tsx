@@ -17,15 +17,36 @@ import {
   ExternalLink,
   ChevronRight,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  User,
+  Eye,
+  X,
+  Copy,
+  Check,
+  Receipt,
+  FileText
 } from 'lucide-react';
 import { getWhatsAppDirectUrl, OWNER_WHATSAPP_NUMBER } from '../lib/whatsapp';
 
 export const OrderTracking: React.FC = () => {
-  const { orders, trackOrderId, setTrackOrderId, triggerWhatsAppNotification, showToast } = useStore();
+  const {
+    orders,
+    myOrders,
+    currentUser,
+    openAuthModal,
+    trackOrderId,
+    setTrackOrderId,
+    showToast,
+    openInvoiceForOrder
+  } = useStore();
+
   const [searchInput, setSearchInput] = useState(trackOrderId || '');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [searchFilter, setSearchFilter] = useState<'all' | 'custom'>('all');
+  const [activeTab, setActiveTab] = useState<'my_orders' | 'search'>(
+    currentUser ? 'my_orders' : 'search'
+  );
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
 
   const statusPipeline: OrderStatus[] = [
     'New',
@@ -36,7 +57,10 @@ export const OrderTracking: React.FC = () => {
     'Delivered'
   ];
 
-  // Auto select if trackOrderId set
+  // List of orders to display in the sidebar
+  const displayedOrders = currentUser && activeTab === 'my_orders' ? myOrders : orders;
+
+  // Auto select if trackOrderId set or default to first
   useEffect(() => {
     if (trackOrderId && orders.length > 0) {
       const match = orders.find(o => o.id.toLowerCase() === trackOrderId.toLowerCase());
@@ -44,10 +68,10 @@ export const OrderTracking: React.FC = () => {
         setSelectedOrder(match);
         setSearchInput(trackOrderId);
       }
-    } else if (orders.length > 0 && !selectedOrder) {
-      setSelectedOrder(orders[0]);
+    } else if (displayedOrders.length > 0 && !selectedOrder) {
+      setSelectedOrder(displayedOrders[0]);
     }
-  }, [trackOrderId, orders]);
+  }, [trackOrderId, orders, displayedOrders]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,36 +103,89 @@ export const OrderTracking: React.FC = () => {
     window.print();
   };
 
+  const handleCopyOrderId = (id: string) => {
+    navigator.clipboard.writeText(id);
+    setCopiedId(true);
+    showToast('Copied', `Order ID ${id} copied to clipboard.`, 'info');
+    setTimeout(() => setCopiedId(false), 2000);
+  };
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
       {/* Header */}
-      <div className="text-center max-w-2xl mx-auto mb-8">
+      <div className="text-center max-w-2xl mx-auto">
         <h1 className="font-heading text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
-          Track Your <span className="text-cyan-600">Mineral Water Order</span>
+          {currentUser ? 'My Orders & ' : 'Track Your '}
+          <span className="text-cyan-600">Water Order</span>
         </h1>
         <p className="mt-2 text-xs sm:text-sm text-slate-600">
-          Enter your Order ID (e.g. HH-ORD-12345) or 10-digit customer mobile number to monitor purification, custom labeling, and delivery status.
+          Monitor your water bottles dispatch status, custom label printing, and live fulfillment in real-time.
         </p>
 
-        {/* Search Bar */}
-        <form onSubmit={handleSearch} className="mt-6 flex gap-2 max-w-md mx-auto">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-              placeholder="Enter Order ID or Mobile Number..."
-              className="w-full pl-10 pr-4 py-3 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 shadow-xs"
-            />
+        {/* Not Logged In Banner */}
+        {!currentUser && (
+          <div className="mt-4 p-3 bg-cyan-50/80 border border-cyan-200 rounded-2xl flex items-center justify-between text-xs text-cyan-900 max-w-md mx-auto">
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-cyan-700 shrink-0" />
+              <span>Sign in to view your complete personal order history.</span>
+            </div>
+            <button
+              onClick={() => openAuthModal('login', 'Sign in to access your complete personal order history.')}
+              className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-3 py-1.5 rounded-xl cursor-pointer shrink-0 ml-2"
+            >
+              Sign In
+            </button>
           </div>
-          <button
-            type="submit"
-            className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-6 py-3 rounded-2xl shadow-md transition-all cursor-pointer shrink-0"
-          >
-            Track
-          </button>
-        </form>
+        )}
+
+        {/* Tabs & Search */}
+        <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3 max-w-lg mx-auto">
+          {currentUser && (
+            <div className="flex p-1 bg-slate-100 rounded-2xl w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setActiveTab('my_orders')}
+                className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'my_orders'
+                    ? 'bg-white text-cyan-900 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                My Orders ({myOrders.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('search')}
+                className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'search'
+                    ? 'bg-white text-cyan-900 shadow-xs'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                Search Order ID
+              </button>
+            </div>
+          )}
+
+          <form onSubmit={handleSearch} className="flex gap-2 w-full sm:flex-1">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                placeholder="Order ID / Mobile..."
+                className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-white"
+              />
+            </div>
+            <button
+              type="submit"
+              className="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0"
+            >
+              Track
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Main Grid: Orders list sidebar + Order Detail card */}
@@ -118,18 +195,26 @@ export const OrderTracking: React.FC = () => {
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <h3 className="font-heading text-sm font-bold text-slate-900 flex items-center gap-1.5">
               <Package className="w-4 h-4 text-cyan-600" />
-              <span>Recent Orders ({orders.length})</span>
+              <span>
+                {activeTab === 'my_orders' ? 'My Order History' : 'All Recent Orders'} ({displayedOrders.length})
+              </span>
             </h3>
             <span className="text-[10px] text-slate-400">Live Sync</span>
           </div>
 
           <div className="space-y-2.5 max-h-[600px] overflow-y-auto pr-1">
-            {orders.length === 0 ? (
-              <div className="text-center py-12 text-slate-400 text-xs">
-                No orders placed yet in this session.
+            {displayedOrders.length === 0 ? (
+              <div className="text-center py-12 text-slate-400 text-xs space-y-2">
+                <Package className="w-8 h-8 text-slate-300 mx-auto" />
+                <p className="font-semibold">No orders found.</p>
+                {activeTab === 'my_orders' && (
+                  <p className="text-[11px] text-slate-400">
+                    Place your first bottled water or custom label order!
+                  </p>
+                )}
               </div>
             ) : (
-              orders.map(ord => {
+              displayedOrders.map(ord => {
                 const isSelected = selectedOrder?.id === ord.id;
                 return (
                   <div
@@ -160,17 +245,25 @@ export const OrderTracking: React.FC = () => {
                     </div>
 
                     <div className="mt-2 flex items-center justify-between text-xs text-slate-600">
-                      <span>{ord.customer.name}</span>
+                      <span className="font-semibold truncate max-w-[140px]">{ord.customer.name}</span>
                       <span className="font-bold text-slate-900">₹{ord.totalAmount}</span>
                     </div>
 
                     <div className="mt-1 flex items-center justify-between text-[11px] text-slate-400">
                       <span>{new Date(ord.createdAt).toLocaleDateString()}</span>
-                      {ord.isCustomOrder && (
-                        <span className="text-[10px] text-cyan-700 font-bold bg-cyan-100/60 px-1.5 py-0.2 rounded">
-                          Custom Design
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {ord.hasOriginalImage && (
+                          <span className="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-1.5 py-0.2 rounded flex items-center gap-1">
+                            <ImageIcon className="w-2.5 h-2.5" />
+                            Image
+                          </span>
+                        )}
+                        {ord.isCustomOrder && (
+                          <span className="text-[10px] text-cyan-700 font-bold bg-cyan-100/60 px-1.5 py-0.2 rounded">
+                            Custom
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -182,18 +275,25 @@ export const OrderTracking: React.FC = () => {
         {/* Selected Order Detailed Tracking (8 cols) */}
         <div className="lg:col-span-8 space-y-6">
           {selectedOrder ? (
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden p-6 sm:p-8 space-y-8">
+            <div className="bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden p-6 sm:p-8 space-y-8">
               {/* Order Top Bar */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-200">
                 <div>
                   <div className="flex items-center gap-3">
-                    <span className="font-mono font-black text-xl text-slate-900">
-                      {selectedOrder.id}
+                    <span className="font-mono font-black text-xl text-slate-900 flex items-center gap-2">
+                      <span>{selectedOrder.id}</span>
+                      <button
+                        onClick={() => handleCopyOrderId(selectedOrder.id)}
+                        className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                        title="Copy Order ID"
+                      >
+                        {copiedId ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
+                      </button>
                     </span>
                     {selectedOrder.isCustomOrder && (
                       <span className="text-xs font-bold bg-gradient-to-r from-cyan-600 to-blue-600 text-white px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
                         <Sparkles className="w-3 h-3" />
-                        CUSTOM DESIGN ORDER
+                        CUSTOM DESIGN
                       </span>
                     )}
                   </div>
@@ -202,13 +302,13 @@ export const OrderTracking: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={handlePrintReceipt}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs"
+                    onClick={() => openInvoiceForOrder(selectedOrder)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   >
-                    <Printer className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Print Invoice</span>
+                    <Receipt className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>View GST Tax Invoice</span>
                   </button>
 
                   <a
@@ -218,7 +318,7 @@ export const OrderTracking: React.FC = () => {
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
-                    <span>WhatsApp Owner (8017341130)</span>
+                    <span>WhatsApp Owner ({OWNER_WHATSAPP_NUMBER})</span>
                   </a>
                 </div>
               </div>
@@ -239,7 +339,6 @@ export const OrderTracking: React.FC = () => {
                   </div>
                 ) : (
                   <div className="relative">
-                    {/* Stepper Bar */}
                     <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                       {statusPipeline.map((step, idx) => {
                         const currentIdx = getStatusIndex(selectedOrder.status);
@@ -322,8 +421,9 @@ export const OrderTracking: React.FC = () => {
                               <span>•</span>
                               <span>{item.customDesignDetails.finishType}</span>
                               {item.customDesignDetails.uploadedImages?.length > 0 && (
-                                <span className="text-emerald-700 font-semibold">
-                                  ({item.customDesignDetails.uploadedImages.length} Artwork file(s) attached)
+                                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                                  <ImageIcon className="w-3 h-3 text-emerald-600" />
+                                  {item.customDesignDetails.uploadedImages.length} Artwork file(s) attached
                                 </span>
                               )}
                             </div>
@@ -350,9 +450,9 @@ export const OrderTracking: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <h5 className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
                       <ImageIcon className="w-4 h-4" />
-                      Original Uploaded Files for Printing
+                      Original Uploaded Customer Artwork Files
                     </h5>
-                    <span className="text-[10px] text-slate-400">High-Resolution Preserved</span>
+                    <span className="text-[10px] text-slate-400">High-Resolution Preserved for Factory Offset Printing</span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -362,24 +462,41 @@ export const OrderTracking: React.FC = () => {
                           key={i}
                           className="bg-slate-800 rounded-xl p-2.5 border border-slate-700 flex flex-col items-center text-center group"
                         >
-                          <div className="w-full h-24 rounded-lg bg-black/40 p-1 flex items-center justify-center overflow-hidden mb-2">
+                          <div
+                            onClick={() => setPreviewImage({ url: img.url, name: img.name })}
+                            className="w-full h-24 rounded-lg bg-black/40 p-1 flex items-center justify-center overflow-hidden mb-2 cursor-pointer hover:opacity-90 relative"
+                          >
                             <img
                               src={img.url}
                               alt={img.name}
                               className="max-h-full max-w-full object-contain"
                             />
+                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                              <Eye className="w-4 h-4 text-white" />
+                            </div>
                           </div>
                           <span className="text-[11px] font-semibold text-slate-200 truncate w-full">
                             {img.name}
                           </span>
-                          <a
-                            href={img.url}
-                            download={img.name || 'hh-custom-logo.png'}
-                            className="mt-2 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                          >
-                            <FileDown className="w-3 h-3" />
-                            <span>Download Original</span>
-                          </a>
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => setPreviewImage({ url: img.url, name: img.name })}
+                              className="text-[10px] font-bold text-slate-300 hover:text-white flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>View</span>
+                            </button>
+                            <span className="text-slate-600">•</span>
+                            <a
+                              href={img.url}
+                              download={img.name || 'hh-custom-logo.png'}
+                              className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-0.5"
+                            >
+                              <FileDown className="w-3 h-3" />
+                              <span>Save</span>
+                            </a>
+                          </div>
                         </div>
                       ))
                     )}
@@ -400,6 +517,9 @@ export const OrderTracking: React.FC = () => {
                     {selectedOrder.customer.city} - {selectedOrder.customer.pincode}
                   </p>
                   <p className="text-slate-800 font-bold mt-1">Phone: {selectedOrder.customer.phone}</p>
+                  {selectedOrder.customer.email && (
+                    <p className="text-slate-500">Email: {selectedOrder.customer.email}</p>
+                  )}
                 </div>
 
                 <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-2 text-xs">
@@ -436,6 +556,48 @@ export const OrderTracking: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Lightbox Modal for Original Image Preview */}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="relative max-w-3xl w-full bg-slate-900 rounded-3xl overflow-hidden border border-slate-800 shadow-2xl p-6 text-center space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between text-white border-b border-slate-800 pb-3">
+              <span className="text-xs font-bold truncate max-w-md">{previewImage.name}</span>
+              <button
+                onClick={() => setPreviewImage(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-full"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] overflow-hidden flex items-center justify-center bg-black/50 rounded-2xl p-2">
+              <img
+                src={previewImage.url}
+                alt={previewImage.name}
+                className="max-h-[60vh] max-w-full object-contain rounded-lg"
+              />
+            </div>
+
+            <div className="flex items-center justify-center gap-4 pt-2">
+              <a
+                href={previewImage.url}
+                download={previewImage.name}
+                className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md flex items-center gap-2"
+              >
+                <FileDown className="w-4 h-4" />
+                <span>Download High-Res Original</span>
+              </a>
+              <button
+                onClick={() => setPreviewImage(null)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs px-5 py-2.5 rounded-xl cursor-pointer"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

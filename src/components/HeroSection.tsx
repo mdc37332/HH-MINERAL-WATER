@@ -10,12 +10,16 @@ import {
   CheckCircle2,
   Phone,
   Layers,
-  Heart
+  Heart,
+  Edit3,
+  Camera
 } from 'lucide-react';
 import { getCustomerSupportWhatsAppUrl, OWNER_WHATSAPP_NUMBER } from '../lib/whatsapp';
 
 export const HeroSection: React.FC = () => {
-  const { setCurrentSection } = useStore();
+  const { setCurrentSection, adminSettings, isAdminUnlocked } = useStore();
+
+  const heroImage = adminSettings.heroBannerImage || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80';
 
   return (
     <section className="relative overflow-hidden bg-gradient-to-b from-slate-900 via-sky-950 to-slate-950 text-white py-16 sm:py-24 px-4 sm:px-6 lg:px-8">
@@ -86,14 +90,27 @@ export const HeroSection: React.FC = () => {
           </div>
 
           {/* Right Column: Hero Visual Showcase */}
-          <div className="lg:col-span-5 relative flex items-center justify-center">
+          <div className="lg:col-span-5 relative flex items-center justify-center group">
             {/* Spotlight Glow */}
             <div className="relative w-full max-w-md aspect-square bg-gradient-to-b from-cyan-500/20 via-blue-600/10 to-transparent rounded-full p-8 flex items-center justify-center border border-cyan-400/20 shadow-2xl">
               <img
-                src="https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80"
+                src={heroImage}
                 alt="HH Mineral Water Premium Bottle"
-                className="max-h-[85%] object-contain filter drop-shadow-[0_20px_35px_rgba(6,182,212,0.35)] animate-water-pulse"
+                className="max-h-[85%] object-contain filter drop-shadow-[0_20px_35px_rgba(6,182,212,0.35)] animate-water-pulse transition-all duration-300"
               />
+
+              {/* Quick Admin Image Edit Button */}
+              <button
+                onClick={() => {
+                  setCurrentSection('admin');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="absolute inset-x-auto top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 bg-slate-900/90 hover:bg-cyan-900 border border-cyan-400/50 text-cyan-300 px-4 py-2.5 rounded-2xl text-xs font-bold shadow-2xl backdrop-blur-md flex items-center gap-2 transition-all cursor-pointer z-30"
+                title="Change bottle image in Admin Panel"
+              >
+                <Camera className="w-4 h-4 text-cyan-400" />
+                <span>Change Image (Admin)</span>
+              </button>
 
               {/* Floating feature pills */}
               <div className="absolute top-6 left-2 bg-slate-900/90 backdrop-blur-md border border-cyan-500/40 px-3.5 py-2 rounded-2xl shadow-xl flex items-center gap-2">

@@ -1,4 +1,4 @@
-import { Product } from '../types';
+import { Product, AdminSettings } from '../types';
 
 export const INITIAL_PRODUCTS: Product[] = [
   {
@@ -127,13 +127,218 @@ export const INITIAL_PRODUCTS: Product[] = [
   }
 ];
 
-export const DEFAULT_ADMIN_SETTINGS = {
+export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   ownerWhatsApp: '8017341130',
   helplinePhone: '+91 8017341130',
   contactEmail: 'orders@hhmineralwater.com',
-  address: 'HH Mineral Water Plant, Industrial Water Hub, Kolkata & Surrounding Region',
+  address: 'HH Mineral Water Plant, Industrial Water Hub, Kolkata, West Bengal - 700001',
   freeDeliveryMinAmount: 99,
   defaultDeliveryCharge: 20,
   adminPin: '8017',
-  acceptingOrders: true
+  acceptingOrders: true,
+  autoProgressOrders: true, // Automated status progression enabled by default
+  autoProgressIntervalMinutes: 2, // 2-minute realistic interval per fulfillment stage
+  heroBannerImage: 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80',
+  brandLogoImage: '',
+
+  // Indian GST & Business Invoicing Defaults (Editable by Admin)
+  legalBusinessName: 'HH MINERAL WATER BOTTLING & BEVERAGES',
+  tradeName: 'HH MINERAL WATER',
+  businessAddress: 'HH Mineral Water Plant, Plot No. 12, Industrial Water Zone, Kolkata, West Bengal',
+  gstin: '19AAACH1234F1Z8', // Fully editable in Admin Settings
+  state: 'West Bengal',
+  stateCode: '19',
+  hsnCode: '2201', // HSN for Packaged Mineral / Drinking Water
+  defaultGstRate: 18, // 18% standard GST on packaged mineral water
+  pricesIncludeGst: true, // Retail catalog prices are GST-inclusive
+  invoicePrefix: 'HH/2026/',
+  fssaiNumber: '12822001000456',
+  panNumber: 'AAACH1234F',
+  cinNumber: 'U15543WB2026PTC245678',
+  bankAccountName: 'HH MINERAL WATER BOTTLING & BEVERAGES',
+  bankName: 'State Bank of India',
+  bankAccountNumber: '389201094821',
+  bankIfsc: 'SBIN0001234',
+  bankUpiId: '8017341130@upi',
+  invoiceTerms: '1. Goods once sold will not be taken back or exchanged.\n2. Invoices are subject to Kolkata jurisdiction.\n3. Keep packaged bottles in a cool, dry, clean place away from direct sunlight.'
 };
+
+export const INITIAL_BULK_INQUIRIES: import('../types').BulkInquiry[] = [
+  {
+    id: 'INQ-2026-8801',
+    clientName: 'Rajesh Mukherjee',
+    phone: '9830124490',
+    email: 'rajesh.mukherjee@grandpalace.in',
+    organization: 'Grand Palace Banquets & Events',
+    eventType: 'Wedding Reception',
+    bottleSize: '250ml',
+    estimatedQuantity: 2400, // 100 cases
+    deliveryDate: '2026-09-15',
+    deliveryLocation: 'EM Bypass Banquet Complex, Kolkata - 700107',
+    customBranding: true,
+    status: 'Quoted',
+    quotedRatePerUnit: 5.5,
+    totalQuotedAmount: 13200,
+    notes: 'Custom bride & groom monogram label requested in gloss gold foil.',
+    createdAt: '2026-08-25T11:30:00.000Z'
+  },
+  {
+    id: 'INQ-2026-8802',
+    clientName: 'Suman Sen',
+    phone: '9831987654',
+    email: 'purchasing@parkviewsuites.com',
+    organization: 'Park View Suites & Boutique Hotel',
+    eventType: 'Hotel/Restaurant',
+    bottleSize: '500ml',
+    estimatedQuantity: 1200, // 50 cases
+    deliveryDate: '2026-09-01',
+    deliveryLocation: 'Park Street, Kolkata - 700016',
+    customBranding: true,
+    status: 'New',
+    quotedRatePerUnit: 8.0,
+    totalQuotedAmount: 9600,
+    notes: 'Monthly recurring supply for guest rooms and restaurant tables.',
+    createdAt: '2026-08-26T08:15:00.000Z'
+  },
+  {
+    id: 'INQ-2026-8803',
+    clientName: 'Amitava Roy',
+    phone: '9748112233',
+    organization: 'Roy Caterers & Event Decorators',
+    eventType: 'Corporate',
+    bottleSize: '1L',
+    estimatedQuantity: 600, // 50 cases
+    deliveryDate: '2026-09-10',
+    deliveryLocation: 'Salt Lake Sector V, Kolkata - 700091',
+    customBranding: false,
+    status: 'Confirmed',
+    quotedRatePerUnit: 14.0,
+    totalQuotedAmount: 8400,
+    notes: 'Standard HH branding bottles for annual tech conference.',
+    createdAt: '2026-08-24T14:40:00.000Z'
+  }
+];
+
+export const INITIAL_BATCH_QUALITY_LOGS: import('../types').BatchQualityLog[] = [
+  {
+    id: 'QLOG-2026-0826-A',
+    batchNumber: 'HH-LOT-2026-0826',
+    testDate: new Date().toISOString().split('T')[0],
+    sourceTank: 'RO Buffer Storage Tank #01',
+    phLevel: 7.38,
+    tdsPpm: 118,
+    turbidityNtu: 0.22,
+    ozoneLevelMgL: 0.04,
+    microbiologyPass: true,
+    labTechnician: 'Dr. S. Chatterjee (Chief Microbiologist)',
+    status: 'PASSED',
+    remarks: 'Ultra-pure mineral equilibrium verified. Meets BIS IS 14543 and FSSAI norms.',
+    fssaiCompliant: true
+  },
+  {
+    id: 'QLOG-2026-0825-B',
+    batchNumber: 'HH-LOT-2026-0825',
+    testDate: new Date(Date.now() - 86400000).toISOString().split('T')[0],
+    sourceTank: 'Mineral Enriched Storage Tank #02',
+    phLevel: 7.42,
+    tdsPpm: 124,
+    turbidityNtu: 0.28,
+    ozoneLevelMgL: 0.05,
+    microbiologyPass: true,
+    labTechnician: 'R. K. Verma (QC Inspector)',
+    status: 'PASSED',
+    remarks: 'Ozonation and UV multi-stage sterilization 100% active.',
+    fssaiCompliant: true
+  }
+];
+
+export const INITIAL_FLEET_VEHICLES: import('../types').FleetVehicle[] = [
+  {
+    id: 'FLEET-01',
+    vehicleNumber: 'WB-02-AK-9842',
+    vehicleType: 'Mini Truck / Tata Ace',
+    driverName: 'Ramesh Das',
+    driverPhone: '+91 98305 12345',
+    assignedRoute: 'Central Kolkata & Park Street Hub',
+    capacityCases: 150,
+    currentLoadCases: 84,
+    status: 'On Delivery Route',
+    todayDeliveriesCount: 6
+  },
+  {
+    id: 'FLEET-02',
+    vehicleNumber: 'WB-06-ER-4190',
+    vehicleType: 'E-Rickshaw Cargo',
+    driverName: 'Mohammed Aslam',
+    driverPhone: '+91 97482 67890',
+    assignedRoute: 'Salt Lake Sector 1-5 & New Town',
+    capacityCases: 60,
+    currentLoadCases: 0,
+    status: 'Available',
+    todayDeliveriesCount: 4
+  },
+  {
+    id: 'FLEET-03',
+    vehicleNumber: 'WB-12-VN-3301',
+    vehicleType: 'Delivery Van',
+    driverName: 'Bikash Mondal',
+    driverPhone: '+91 80172 99881',
+    assignedRoute: 'Howrah, Bally & Hooghly Commercial',
+    capacityCases: 100,
+    currentLoadCases: 45,
+    status: 'On Delivery Route',
+    todayDeliveriesCount: 5
+  }
+];
+
+export const INITIAL_PLANT_EXPENSES: import('../types').PlantExpense[] = [
+  {
+    id: 'EXP-2026-0801',
+    date: '2026-08-25',
+    category: 'PET Preforms & Caps',
+    title: 'Food-Grade PET Preforms 13.5g (5,000 pcs) + 28mm Caps',
+    amount: 14500,
+    paymentMode: 'Bank Transfer',
+    vendorName: 'Apex Polymers Ltd.',
+    invoiceOrBillRef: 'APEX/INV/2026/891',
+    notes: 'For 250ml and 500ml production line',
+    createdAt: '2026-08-25T10:00:00.000Z'
+  },
+  {
+    id: 'EXP-2026-0802',
+    date: '2026-08-24',
+    category: 'Corrugated Boxes & Shrink Pack',
+    title: '24-Bottle 5-Ply Master Cartons (200 boxes)',
+    amount: 5800,
+    paymentMode: 'UPI',
+    vendorName: 'Kolkata Packaging & Corrugators',
+    invoiceOrBillRef: 'KPC-8891',
+    notes: 'Printed HH brand master cartons',
+    createdAt: '2026-08-24T12:30:00.000Z'
+  },
+  {
+    id: 'EXP-2026-0803',
+    date: '2026-08-22',
+    category: 'Fleet Fuel & Vehicle Service',
+    title: 'Diesel Fuel for Tata Ace Delivery Fleet (WB-02-AK-9842)',
+    amount: 3200,
+    paymentMode: 'UPI',
+    vendorName: 'Indian Oil Retail Outlet',
+    invoiceOrBillRef: 'IOCL-PETROL-8291',
+    notes: 'Weekly dispatch fueling',
+    createdAt: '2026-08-22T08:00:00.000Z'
+  },
+  {
+    id: 'EXP-2026-0804',
+    date: '2026-08-20',
+    category: 'RO Membrane & Filter Consumables',
+    title: '5-Micron Spun Sediment Filters (Pack of 12) + Activated Carbon',
+    amount: 4600,
+    paymentMode: 'Bank Transfer',
+    vendorName: 'AquaTech Industrial Spares',
+    invoiceOrBillRef: 'AT-99120',
+    notes: 'Scheduled monthly filtration cartridge replacement',
+    createdAt: '2026-08-20T15:00:00.000Z'
+  }
+];
+

@@ -44,3 +44,28 @@
 ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
+
+/* Print Stylesheet for Official Indian GST Invoices */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 11pt !important;
+  }
+  header, footer, nav, .print\:hidden {
+    display: none !important;
+  }
+  #printable-gst-invoice {
+    display: block !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm;
+  }
+}
+
