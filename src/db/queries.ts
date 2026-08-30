@@ -1,6 +1,6 @@
 import { db } from './index.ts';
 import { orders, products, storeSettings, users, invoices, productAuditLogs } from './schema.ts';
-import { desc, eq, count } from 'drizzle-orm';
+import { desc, eq, count, or } from 'drizzle-orm';
 import { Order, Product, AdminSettings, Invoice, ProductAuditLog } from '../types.ts';
 
 // User registration or retrieval
@@ -161,6 +161,16 @@ export async function getAllProductAuditLogs(): Promise<ProductAuditLog[]> {
     }));
   } catch (error) {
     console.error('Database query getAllProductAuditLogs failed:', error);
+    return [];
+  }
+}
+
+export async function clearAllProductAuditLogs() {
+  try {
+    const result = await db.delete(productAuditLogs).returning();
+    return result;
+  } catch (error) {
+    console.error('Database query clearAllProductAuditLogs failed:', error);
     return [];
   }
 }
@@ -506,6 +516,28 @@ export async function getNextInvoiceCount(): Promise<number> {
     return (res[0]?.value || 0) + 1;
   } catch {
     return 1;
+  }
+}
+
+export async function deleteInvoiceById(id: string) {
+  try {
+    const result = await db.delete(invoices)
+      .where(or(eq(invoices.id, id), eq(invoices.invoiceNumber, id), eq(invoices.orderId, id)))
+      .returning();
+    return result[0];
+  } catch (error) {
+    console.error('Database query deleteInvoiceById failed:', error);
+    throw new Error('Failed to delete invoice from database.', { cause: error });
+  }
+}
+
+export async function deleteAllInvoices() {
+  try {
+    const result = await db.delete(invoices).returning();
+    return result;
+  } catch (error) {
+    console.error('Database query deleteAllInvoices failed:', error);
+    throw new Error('Failed to delete all invoices.', { cause: error });
   }
 }
 

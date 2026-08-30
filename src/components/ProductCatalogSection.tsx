@@ -16,6 +16,14 @@ export const ProductCatalogSection: React.FC = () => {
   const { products, setCurrentSection } = useStore();
   const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>('all');
 
+  const availableSizes = React.useMemo(() => {
+    const set = new Set<string>();
+    products.forEach(p => {
+      if (p.size) set.add(p.size.trim());
+    });
+    return ['all', ...Array.from(set)];
+  }, [products]);
+
   const filtered = products.filter(p => {
     if (selectedSizeFilter === 'all') return true;
     return p.size === selectedSizeFilter;
@@ -43,7 +51,7 @@ export const ProductCatalogSection: React.FC = () => {
           <span className="text-xs font-bold text-slate-400 mr-1 flex items-center gap-1">
             <Filter className="w-3.5 h-3.5" /> Size:
           </span>
-          {['all', '250ml', '500ml', '1L', '2L'].map(sz => (
+          {availableSizes.map(sz => (
             <button
               key={sz}
               onClick={() => setSelectedSizeFilter(sz)}

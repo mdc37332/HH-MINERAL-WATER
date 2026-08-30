@@ -21,6 +21,7 @@ export const CartDrawer: React.FC = () => {
     isCartOpen,
     setIsCartOpen,
     updateCartItemQty,
+    setCartItemQty,
     removeFromCart,
     clearCart,
     cartSubtotal,
@@ -206,9 +207,26 @@ export const CartDrawer: React.FC = () => {
                                   >
                                     <Minus className="w-2.5 h-2.5" />
                                   </button>
-                                  <span className="px-2 text-center text-xs font-black text-slate-900">
-                                    {item.quantity.toLocaleString('en-IN')} pcs
-                                  </span>
+
+                                  {isCustom ? (
+                                    <input
+                                      type="number"
+                                      min={600}
+                                      value={item.quantity === 0 ? '' : item.quantity}
+                                      onChange={e => {
+                                        const val = parseInt(e.target.value, 10);
+                                        if (!isNaN(val)) {
+                                          setCartItemQty(item.cartItemId, val);
+                                        }
+                                      }}
+                                      className="w-16 px-1 text-center text-xs font-black text-slate-900 bg-transparent border-0 focus:outline-none"
+                                    />
+                                  ) : (
+                                    <span className="px-2 text-center text-xs font-black text-slate-900">
+                                      {item.quantity.toLocaleString('en-IN')} pcs
+                                    </span>
+                                  )}
+
                                   <button
                                     onClick={() => {
                                       const step = isCustom ? (item.quantity >= 5000 ? 500 : item.quantity >= 1000 ? 100 : 50) : 12;

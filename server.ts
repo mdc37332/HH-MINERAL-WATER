@@ -18,8 +18,11 @@ import {
   getInvoiceByOrderId,
   createInvoiceInDb,
   getNextInvoiceCount,
+  deleteInvoiceById,
+  deleteAllInvoices,
   getAllProductAuditLogs,
   insertProductAuditLog,
+  clearAllProductAuditLogs,
 } from './src/db/queries.ts';
 import { optionalAuth, requireAuth, AuthRequest } from './src/middleware/auth.ts';
 import {
@@ -116,6 +119,17 @@ async function startServer() {
     } catch (error: any) {
       console.error('Failed to get product audit logs:', error);
       res.json([]);
+    }
+  });
+
+  app.delete('/api/products/audit-logs', requireAdminAuth, async (req, res) => {
+    try {
+      const result = await clearAllProductAuditLogs();
+      logAuditEvent('ADMIN_PRODUCT_AUDIT_CLEARED', 'All product audit logs cleared by admin');
+      res.json({ success: true, count: result.length });
+    } catch (error: any) {
+      console.error('Failed to clear product audit logs:', error);
+      res.status(500).json({ error: 'Failed to clear product audit logs' });
     }
   });
 
@@ -384,6 +398,29 @@ async function startServer() {
     } catch (error: any) {
       console.error('Failed to generate invoice:', error);
       res.status(500).json({ error: error.message || 'Failed to generate invoice' });
+    }
+  });
+
+  app.delete('/api/invoices/:id', requireAdminAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const deleted = await deleteInvoiceById(id);
+      logAuditEvent('ADMIN_INVOICE_DELETED', `GST Tax Invoice deleted: ${id}`);
+      res.json({ success: true, deleted, message: `Invoice ${id} deleted successfully.` });
+    } catch (error: any) {
+      console.error('Failed to delete invoice:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete invoice' });
+    }
+  });
+
+  app.delete('/api/invoices', requireAdminAuth, async (req, res) => {
+    try {
+      await deleteAllInvoices();
+      logAuditEvent('ADMIN_ALL_INVOICES_DELETED', `All GST Tax Invoices deleted from register.`);
+      res.json({ success: true, message: 'All invoices deleted successfully.' });
+    } catch (error: any) {
+      console.error('Failed to delete all invoices:', error);
+      res.status(500).json({ error: error.message || 'Failed to delete all invoices' });
     }
   });
 

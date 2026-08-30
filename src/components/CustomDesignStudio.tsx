@@ -278,6 +278,91 @@ export const CustomDesignStudio: React.FC = () => {
                 })}
               </div>
 
+              {/* Target Batch Quantity Selection in Step 1 */}
+              <div className="bg-gradient-to-r from-cyan-50/80 via-white to-sky-50/80 rounded-2xl p-4 border border-cyan-200 shadow-2xs space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Package className="w-4 h-4 text-cyan-600" />
+                      <span className="text-xs font-black text-slate-900 uppercase tracking-wide">
+                        Target Order Quantity
+                      </span>
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                        Min: 600 pcs
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Choose standard event batch or enter custom piece count (unlimited max).
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-black text-cyan-800 font-heading text-base">
+                      ₹{totalCalculated.toLocaleString('en-IN')}
+                    </span>
+                    <span className="text-[10px] text-slate-500 block">
+                      ({quantity.toLocaleString('en-IN')} × ₹{customUnitPrice})
+                    </span>
+                  </div>
+                </div>
+
+                {/* Direct Numeric Input with Stepper Controls */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-1">
+                  <div className="flex items-center bg-white rounded-xl border-2 border-cyan-300 shadow-xs p-1">
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(prev => Math.max(600, prev - (prev > 5000 ? 500 : prev > 1000 ? 100 : 50)))}
+                      className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-cyan-100 text-slate-700 hover:text-cyan-800 flex items-center justify-center font-bold text-sm cursor-pointer transition-colors"
+                      title="Decrease quantity"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <div className="relative flex-1 sm:w-32 px-2">
+                      <input
+                        type="number"
+                        min={600}
+                        step={10}
+                        value={quantity === 0 ? '' : quantity}
+                        onChange={e => {
+                          const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                          setQuantity(isNaN(val) ? 0 : val);
+                        }}
+                        className="w-full text-center font-heading font-black text-base text-cyan-900 bg-transparent focus:outline-none"
+                        placeholder="600"
+                      />
+                      <span className="text-[9px] text-slate-400 font-extrabold uppercase block text-center -mt-0.5">
+                        Pieces
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(prev => (prev < 600 ? 600 : prev + (prev >= 5000 ? 500 : prev >= 1000 ? 100 : 50)))}
+                      className="w-9 h-9 rounded-lg bg-slate-100 hover:bg-cyan-100 text-slate-700 hover:text-cyan-800 flex items-center justify-center font-bold text-sm cursor-pointer transition-colors"
+                      title="Increase quantity"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Quick Quantity Preset Chips */}
+                  <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                    {[600, 1000, 2500, 5000, 10000, 25000, 50000].map(q => (
+                      <button
+                        key={q}
+                        type="button"
+                        onClick={() => setQuantity(q)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          quantity === q
+                            ? 'bg-cyan-600 text-white shadow-xs'
+                            : 'bg-white text-slate-700 border border-slate-200 hover:border-cyan-400 hover:bg-cyan-50/50'
+                        }`}
+                      >
+                        {q.toLocaleString('en-IN')} pcs
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <div>
                 <h3 className="font-heading text-sm font-bold text-slate-900 mt-2 mb-2">
                   Select Event / Purpose
@@ -629,18 +714,63 @@ export const CustomDesignStudio: React.FC = () => {
                     </div>
 
                     {/* Quick Step Buttons */}
-                    <div className="flex flex-wrap items-center gap-1.5 flex-1">
-                      <span className="text-[11px] font-bold text-slate-500 mr-1">Quick Add:</span>
-                      {[+1, +10, +100, +500, +1000, +5000, +10000].map(delta => (
-                        <button
-                          key={delta}
-                          type="button"
-                          onClick={() => setQuantity(prev => Math.max(600, (prev < 600 ? 600 : prev) + delta))}
-                          className="px-2.5 py-2 rounded-xl bg-white hover:bg-cyan-50 hover:text-cyan-700 hover:border-cyan-300 border border-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                        >
-                          +{delta.toLocaleString('en-IN')}
-                        </button>
-                      ))}
+                    <div className="space-y-2 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[11px] font-bold text-slate-500 mr-1">Fine Tune:</span>
+                        {[-500, -100, -10].map(delta => (
+                          <button
+                            key={delta}
+                            type="button"
+                            onClick={() => setQuantity(prev => Math.max(600, prev + delta))}
+                            className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition-all cursor-pointer"
+                          >
+                            {delta}
+                          </button>
+                        ))}
+                        {[+10, +100, +500, +1000, +5000, +10000, +50000].map(delta => (
+                          <button
+                            key={delta}
+                            type="button"
+                            onClick={() => setQuantity(prev => Math.max(600, (prev < 600 ? 600 : prev) + delta))}
+                            className="px-2.5 py-1.5 rounded-xl bg-white hover:bg-cyan-50 hover:text-cyan-700 hover:border-cyan-300 border border-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                          >
+                            +{delta.toLocaleString('en-IN')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Batch Production Capacity & Carton Calculation */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1 text-xs">
+                    <div className="p-2.5 bg-white rounded-xl border border-cyan-100">
+                      <span className="text-[10px] text-slate-400 block font-bold uppercase">Estimated Cartons</span>
+                      <span className="font-extrabold text-cyan-900 text-sm">
+                        {Math.ceil(quantity / (activeProduct.casePackSize || 24))} Cases
+                      </span>
+                      <span className="text-[10px] text-slate-500 block">
+                        ({activeProduct.casePackSize || 24} btls/case)
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-white rounded-xl border border-cyan-100">
+                      <span className="text-[10px] text-slate-400 block font-bold uppercase">Total Batch Volume</span>
+                      <span className="font-extrabold text-cyan-900 text-sm">
+                        {Math.round(quantity * (activeProduct.size === '250ml' ? 0.25 : activeProduct.size === '500ml' ? 0.5 : activeProduct.size === '1L' ? 1.0 : activeProduct.size === '2L' ? 2.0 : 0.5)).toLocaleString('en-IN')} Litres
+                      </span>
+                      <span className="text-[10px] text-slate-500 block">
+                        Natural Mineral Water
+                      </span>
+                    </div>
+
+                    <div className="p-2.5 bg-white rounded-xl border border-cyan-100 col-span-2 sm:col-span-1">
+                      <span className="text-[10px] text-slate-400 block font-bold uppercase">Plate Setup Charge</span>
+                      <span className="font-extrabold text-emerald-700 text-sm">
+                        ₹0 (FREE)
+                      </span>
+                      <span className="text-[10px] text-slate-500 block">
+                        Included in 2× unit rate
+                      </span>
                     </div>
                   </div>
 
@@ -839,6 +969,44 @@ export const CustomDesignStudio: React.FC = () => {
                   <span>Order Quantity:</span>
                   <span className="text-slate-900 font-bold">{quantity.toLocaleString('en-IN')} Pieces</span>
                 </div>
+
+                {/* Quick Interactive Quantity Stepper in Preview */}
+                <div className="pt-1 bg-white p-2 rounded-xl border border-slate-200 space-y-1.5">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="font-bold text-slate-700">Quick Quantity:</span>
+                    <span className="text-cyan-700 font-extrabold">₹{(customUnitPrice * quantity).toLocaleString('en-IN')} Total</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(prev => Math.max(600, prev - (prev > 5000 ? 500 : prev > 1000 ? 100 : 50)))}
+                      className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs cursor-pointer"
+                      title="Decrease quantity"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </button>
+                    <input
+                      type="number"
+                      min={600}
+                      value={quantity === 0 ? '' : quantity}
+                      onChange={e => {
+                        const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                        setQuantity(isNaN(val) ? 0 : val);
+                      }}
+                      className="flex-1 text-center font-black text-xs text-slate-900 py-1 px-1 rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                      placeholder="600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setQuantity(prev => (prev < 600 ? 600 : prev + (prev >= 5000 ? 500 : prev >= 1000 ? 100 : 50)))}
+                      className="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs cursor-pointer"
+                      title="Increase quantity"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+
                 <div className="pt-1 flex flex-wrap gap-1.5">
                   <span className="bg-white border border-slate-200 text-slate-700 text-[10px] font-semibold px-2 py-0.5 rounded-md">
                     {finishType}

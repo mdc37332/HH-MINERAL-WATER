@@ -101,7 +101,9 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
               </div>
               <div className="bg-white/80 backdrop-blur-xs p-2 rounded-xl border border-slate-200/80 shadow-2xs">
                 <span className="block text-[10px] text-slate-400 font-semibold uppercase">Alkaline</span>
-                <span className="text-xs font-bold text-sky-700">{product.mineralInfo.ph.split(' ')[0]} pH</span>
+                <span className="text-xs font-bold text-sky-700">
+                  {product.mineralInfo?.ph ? product.mineralInfo.ph.split(' ')[0] : '7.4'} pH
+                </span>
               </div>
               <div className="bg-white/80 backdrop-blur-xs p-2 rounded-xl border border-slate-200/80 shadow-2xs">
                 <span className="block text-[10px] text-slate-400 font-semibold uppercase">Grade</span>
@@ -226,7 +228,7 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
                       {product.description}
                     </p>
                     <div className="space-y-1 pt-1">
-                      {product.features.map((feat, i) => (
+                      {(product.features || ['Pure Natural Mineral Water', 'UV & Ozonated Sterilization', 'BPA-Free Food Grade Packaging']).map((feat, i) => (
                         <div key={i} className="flex items-center gap-2 text-xs text-slate-700">
                           <CheckCircle2 className="w-3.5 h-3.5 text-cyan-600 shrink-0" />
                           <span>{feat}</span>
@@ -241,27 +243,27 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="text-slate-400 block text-[10px]">Calcium (Ca++)</span>
-                        <span className="font-bold text-slate-800">{product.mineralInfo.calcium}</span>
+                        <span className="font-bold text-slate-800">{product.mineralInfo?.calcium || '32 mg/L'}</span>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="text-slate-400 block text-[10px]">Magnesium (Mg++)</span>
-                        <span className="font-bold text-slate-800">{product.mineralInfo.magnesium}</span>
+                        <span className="font-bold text-slate-800">{product.mineralInfo?.magnesium || '14 mg/L'}</span>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="text-slate-400 block text-[10px]">Potassium (K+)</span>
-                        <span className="font-bold text-slate-800">{product.mineralInfo.potassium}</span>
+                        <span className="font-bold text-slate-800">{product.mineralInfo?.potassium || '4.5 mg/L'}</span>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="text-slate-400 block text-[10px]">Silica (SiO2)</span>
-                        <span className="font-bold text-slate-800">{product.mineralInfo.silica}</span>
+                        <span className="font-bold text-slate-800">{product.mineralInfo?.silica || '18 mg/L'}</span>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="text-slate-400 block text-[10px]">pH Balance</span>
-                        <span className="font-bold text-cyan-700">{product.mineralInfo.ph}</span>
+                        <span className="font-bold text-cyan-700">{product.mineralInfo?.ph || '7.4 pH'}</span>
                       </div>
                       <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
                         <span className="text-slate-400 block text-[10px]">TDS Level</span>
-                        <span className="font-bold text-slate-800">{product.mineralInfo.tds}</span>
+                        <span className="font-bold text-slate-800">{product.mineralInfo?.tds || '120 ppm'}</span>
                       </div>
                     </div>
                   </div>

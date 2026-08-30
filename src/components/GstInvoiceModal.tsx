@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Invoice, Order } from '../types';
+import { useStore } from '../context/StoreContext';
 import {
   Printer,
   FileDown,
@@ -16,7 +17,8 @@ import {
   Receipt,
   QrCode,
   CheckCircle2,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from 'lucide-react';
 import { getInvoiceShareWhatsAppUrl } from '../lib/whatsapp';
 
@@ -33,13 +35,30 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
   isOpen,
   onClose
 }) => {
+  const { deleteInvoice } = useStore();
   const [copyType, setCopyType] = useState<'Original for Recipient' | 'Duplicate for Transporter' | 'Triplicate for Supplier'>('Original for Recipient');
   const [copied, setCopied] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   if (!isOpen || !invoice) return null;
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDelete = async () => {
+    const confirmed = window.confirm(
+      `Are you sure you want to permanently delete GST Tax Invoice #${invoice.invoiceNumber} for Order ${invoice.orderId}?\n\nThis action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteInvoice(invoice.id);
+      onClose();
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleCopyDetails = () => {
@@ -120,6 +139,17 @@ Date: ${new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}`;
               title="Copy details"
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+              title="Delete this GST Tax Invoice"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{isDeleting ? 'Deleting...' : 'Delete'}</span>
             </button>
 
             <button
@@ -565,6 +595,17 @@ Date: ${new Date(invoice.invoiceDate).toLocaleDateString('en-IN')}`;
               <Share2 className="w-3.5 h-3.5" />
               <span>Share</span>
             </a>
+
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs px-3.5 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
+              title="Permanently remove this GST invoice"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>{isDeleting ? 'Deleting...' : 'Delete'}</span>
+            </button>
 
             <button
               onClick={onClose}

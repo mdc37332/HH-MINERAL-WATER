@@ -418,6 +418,10 @@ export const CustomerProfileSection: React.FC = () => {
                     value={newPassword}
                     onChange={e => setNewPassword(e.target.value)}
                     placeholder="Min 6 characters"
+                    autoComplete="new-password"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    data-lpignore="true"
                     className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
                   />
                 </div>
@@ -430,6 +434,10 @@ export const CustomerProfileSection: React.FC = () => {
                     value={confirmNewPassword}
                     onChange={e => setConfirmNewPassword(e.target.value)}
                     placeholder="Re-type new password"
+                    autoComplete="new-password"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    data-lpignore="true"
                     className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
                   />
                 </div>

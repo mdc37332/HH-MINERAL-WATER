@@ -11,7 +11,8 @@ import {
   deleteDoc,
   query,
   orderBy,
-  where
+  where,
+  getDocFromServer
 } from 'firebase/firestore';
 import {
   getAuth,
@@ -49,11 +50,81 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 const databaseId = firebaseConfigJson.firestoreDatabaseId || '(default)';
 export const db = getFirestore(app, databaseId);
 
+// Test Firestore Connection
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+testConnection();
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  return errInfo;
+}
+
 // Local storage fallback keys
 const LS_PRODUCTS_KEY = 'hh_mineral_products_v1';
 const LS_ORDERS_KEY = 'hh_mineral_orders_v1';
 const LS_SETTINGS_KEY = 'hh_mineral_settings_v1';
 const LS_PROFILE_KEY = 'hh_mineral_profile_v1';
+
+// Recursive Sanitizer to remove all undefined values (which Firestore rejects)
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) return null as unknown as T;
+  return JSON.parse(
+    JSON.stringify(data, (_key, value) => {
+      if (value === undefined) return null;
+      return value;
+    })
+  );
+}
 
 // ----------------------------------------------------
 // Customer Authentication Functions
@@ -295,16 +366,22 @@ export async function seedInitialProductsIfNeeded(): Promise<Product[]> {
   try {
     const productsCol = collection(db, 'products');
     const snapshot = await getDocs(productsCol);
-    if (snapshot.empty && INITIAL_PRODUCTS.length > 0) {
+    const hasBeenInitialized = localStorage.getItem('hh_catalog_initialized_v1') === 'true';
+
+    if (snapshot.empty && !hasBeenInitialized && INITIAL_PRODUCTS.length > 0) {
       for (const prod of INITIAL_PRODUCTS) {
-        await setDoc(doc(db, 'products', prod.id), prod);
+        const clean = sanitizeForFirestore(prod);
+        await setDoc(doc(db, 'products', prod.id), clean, { merge: true });
       }
+      localStorage.setItem('hh_catalog_initialized_v1', 'true');
       return INITIAL_PRODUCTS;
     } else {
       const prods: Product[] = [];
       snapshot.forEach(docSnap => {
-        prods.push(docSnap.data() as Product);
+        const item = docSnap.data() as Product;
+        if (item && item.id) prods.push(item);
       });
+      prods.sort((a, b) => (a.price || 0) - (b.price || 0));
       return prods;
     }
   } catch (err) {
@@ -312,12 +389,13 @@ export async function seedInitialProductsIfNeeded(): Promise<Product[]> {
     const cached = localStorage.getItem(LS_PRODUCTS_KEY);
     if (cached) {
       try {
-        return JSON.parse(cached);
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
       } catch {
         // ignore
       }
     }
-    return INITIAL_PRODUCTS;
+    return [];
   }
 }
 
@@ -327,13 +405,40 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
     const productsCol = collection(db, 'products');
     const unsubscribe = onSnapshot(
       productsCol,
-      snapshot => {
+      async snapshot => {
+        // Check if catalog has already been marked as initialized in localStorage
+        const hasBeenInitialized = localStorage.getItem('hh_catalog_initialized_v1') === 'true';
+
+        if (snapshot.empty && !hasBeenInitialized) {
+          // If Firestore is empty on the very first initial app startup, seed default products
+          try {
+            for (const prod of INITIAL_PRODUCTS) {
+              const clean = sanitizeForFirestore(prod);
+              await setDoc(doc(db, 'products', prod.id), clean, { merge: true });
+            }
+            localStorage.setItem('hh_catalog_initialized_v1', 'true');
+          } catch (seedErr) {
+            console.warn('Firestore initial seeding error:', seedErr);
+          }
+          localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(INITIAL_PRODUCTS));
+          onProductsChange(INITIAL_PRODUCTS);
+          return;
+        }
+
         const prods: Product[] = [];
         snapshot.forEach(docSnap => {
-          prods.push(docSnap.data() as Product);
+          const item = docSnap.data() as Product;
+          if (item && item.id) {
+            prods.push(item);
+          }
         });
+
+        // Mark catalog as initialized so future deletions do not re-trigger seed
+        localStorage.setItem('hh_catalog_initialized_v1', 'true');
+
         // Sort by price ascending
-        prods.sort((a, b) => a.price - b.price);
+        prods.sort((a, b) => (a.price || 0) - (b.price || 0));
+
         localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(prods));
         onProductsChange(prods);
       },
@@ -342,20 +447,27 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
         const cached = localStorage.getItem(LS_PRODUCTS_KEY);
         if (cached) {
           try {
-            onProductsChange(JSON.parse(cached));
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed)) {
+              onProductsChange(parsed);
+              return;
+            }
           } catch {
-            onProductsChange(INITIAL_PRODUCTS);
+            // ignore
           }
-        } else {
-          onProductsChange(INITIAL_PRODUCTS);
         }
+        onProductsChange(INITIAL_PRODUCTS);
       }
     );
     return unsubscribe;
   } catch (e) {
     console.warn('Error setting up product subscription:', e);
     const cached = localStorage.getItem(LS_PRODUCTS_KEY);
-    onProductsChange(cached ? JSON.parse(cached) : INITIAL_PRODUCTS);
+    try {
+      onProductsChange(cached ? JSON.parse(cached) : INITIAL_PRODUCTS);
+    } catch {
+      onProductsChange(INITIAL_PRODUCTS);
+    }
     return () => {};
   }
 }
@@ -409,12 +521,14 @@ export async function saveProductToDb(
     // ignore
   }
 
-  // Update Firestore
+  // Update Firestore with clean sanitized payload
   try {
     const docRef = doc(db, 'products', enrichedProduct.id);
-    await setDoc(docRef, enrichedProduct, { merge: true });
+    const cleanDoc = sanitizeForFirestore(enrichedProduct);
+    await setDoc(docRef, cleanDoc, { merge: true });
+    console.log(`[FIRESTORE SUCCESS] Product ${enrichedProduct.name} (${enrichedProduct.size}) synced with ID: ${enrichedProduct.id}`);
   } catch (err) {
-    console.warn('Firestore product update error:', err);
+    console.error('Firestore product update error:', err);
   }
 
   // Generate audit logs for changed fields
@@ -494,7 +608,8 @@ export async function recordProductAuditLogInDb(log: ProductAuditLog): Promise<v
   // Persist to Firestore
   try {
     const docRef = doc(db, 'product_audit_logs', log.id);
-    await setDoc(docRef, log);
+    const cleanLog = sanitizeForFirestore(log);
+    await setDoc(docRef, cleanLog);
   } catch (err) {
     console.warn('Firestore audit log save error:', err);
   }
@@ -596,6 +711,7 @@ export async function deleteAllProductsFromDb(adminEmail: string = 'mdhussain170
 
   try {
     localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify([]));
+    localStorage.setItem('hh_catalog_initialized_v1', 'true');
   } catch {
     // ignore
   }
@@ -614,6 +730,24 @@ export async function deleteAllProductsFromDb(adminEmail: string = 'mdhussain170
     deviceInfo: 'Admin Session'
   };
   await recordProductAuditLogInDb(auditItem);
+}
+
+// Clear all Product Audit Logs in DB
+export async function clearProductAuditLogsInDb(): Promise<void> {
+  try {
+    const logsCol = collection(db, 'product_audit_logs');
+    const snapshot = await getDocs(logsCol);
+    const deletes = snapshot.docs.map(d => deleteDoc(d.ref));
+    await Promise.allSettled(deletes);
+  } catch (err) {
+    console.warn('Firestore clear audit logs error:', err);
+  }
+
+  try {
+    localStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify([]));
+  } catch {
+    // ignore
+  }
 }
 
 // Subscribe to Orders
@@ -669,7 +803,8 @@ export async function saveNewOrderToDb(order: Order): Promise<void> {
   // Update Firestore
   try {
     const orderDoc = doc(db, 'orders', order.id);
-    await setDoc(orderDoc, order);
+    const cleanDoc = sanitizeForFirestore(order);
+    await setDoc(orderDoc, cleanDoc);
   } catch (err) {
     console.warn('Firestore save order error:', err);
   }
@@ -803,3 +938,40 @@ export function saveAdminSettings(settings: AdminSettings) {
     console.warn('Save settings error:', e);
   }
 }
+
+// Delete Invoice from Firestore & Local Storage
+export async function deleteInvoiceFromDb(invoiceId: string, invoiceNumber?: string): Promise<void> {
+  // Update Local Storage
+  try {
+    const cached = localStorage.getItem('hh_mineral_invoices_v1');
+    if (cached) {
+      const list = JSON.parse(cached);
+      const filtered = list.filter((inv: any) => 
+        inv.id !== invoiceId && 
+        inv.invoiceNumber !== invoiceId && 
+        inv.orderId !== invoiceId &&
+        (!invoiceNumber || inv.invoiceNumber !== invoiceNumber)
+      );
+      localStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(filtered));
+    }
+  } catch (e) {
+    console.warn('Local storage error on invoice deletion:', e);
+  }
+
+  // Delete from Firestore
+  try {
+    const invoiceDoc = doc(db, 'invoices', invoiceId);
+    await deleteDoc(invoiceDoc);
+  } catch (err) {
+    console.warn('Firestore delete invoice error:', err);
+  }
+}
+
+export async function deleteAllInvoicesFromDb(): Promise<void> {
+  try {
+    localStorage.removeItem('hh_mineral_invoices_v1');
+  } catch (e) {
+    console.warn('Local storage clear invoices error:', e);
+  }
+}
+
