@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PlantExpense } from '../../types';
 import { INITIAL_PLANT_EXPENSES } from '../../data/initialProducts';
+import { useStore } from '../../context/StoreContext';
 import {
   DollarSign,
   TrendingUp,
@@ -13,15 +14,19 @@ import {
   Building2,
   Trash2,
   PieChart,
-  Tag
+  Tag,
+  AlertCircle
 } from 'lucide-react';
 
 interface PlantExpensesTabProps {
   totalRevenue: number;
-  showToast: (title: string, message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
+  showToast?: (title: string, message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
 }
 
-export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue, showToast }) => {
+export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue, showToast: propShowToast }) => {
+  const store = useStore();
+  const showToast = propShowToast || store?.showToast || ((_t: string, _m: string) => {});
+
   const [expenses, setExpenses] = useState<PlantExpense[]>(() => {
     try {
       const saved = localStorage.getItem('hh_plant_expenses');
@@ -34,6 +39,8 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [expenseToDelete, setExpenseToDelete] = useState<PlantExpense | null>(null);
+  const [isConfirmDeleteAllOpen, setIsConfirmDeleteAllOpen] = useState(false);
 
   // New Expense Form
   const [newExpense, setNewExpense] = useState<Partial<PlantExpense>>({
@@ -92,12 +99,19 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
     showToast('Expense Recorded', `₹${created.amount} recorded under ${created.category}.`, 'success');
   };
 
-  const handleDeleteExpense = (id: string, title: string) => {
-    if (window.confirm(`Delete expense record: "${title}"?`)) {
-      const updated = expenses.filter(e => e.id !== id);
-      saveExpenses(updated);
-      showToast('Expense Removed', 'Expense item deleted.', 'info');
-    }
+  const handleDeleteExpense = (id: string) => {
+    const target = expenses.find(e => e.id === id);
+    const updated = expenses.filter(e => e.id !== id);
+    saveExpenses(updated);
+    setExpenseToDelete(null);
+    showToast('Expense Removed', `Expense "${target?.title || id}" deleted successfully.`, 'info');
+  };
+
+  const handleDeleteAllExpenses = () => {
+    const count = expenses.length;
+    saveExpenses([]);
+    setIsConfirmDeleteAllOpen(false);
+    showToast('All Expenses Cleared', `Successfully removed all ${count} plant expense entries.`, 'info');
   };
 
   const exportExpensesCsv = () => {
@@ -226,6 +240,18 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
             <span>Export CSV</span>
           </button>
 
+          {expenses.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsConfirmDeleteAllOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+              title="Delete all plant expense records"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Delete All ({expenses.length})</span>
+            </button>
+          )}
+
           <button
             onClick={() => setIsAddModalOpen(true)}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md cursor-pointer"
@@ -302,7 +328,8 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
                     </td>
                     <td className="p-3.5 text-center">
                       <button
-                        onClick={() => handleDeleteExpense(exp.id, exp.title)}
+                        type="button"
+                        onClick={() => setExpenseToDelete(exp)}
                         className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 hover:text-rose-700 cursor-pointer"
                         title="Delete expense entry"
                       >
@@ -454,6 +481,95 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* SINGLE EXPENSE DELETE MODAL */}
+      {expenseToDelete && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200 animate-in fade-in zoom-in-95 space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-heading font-black text-lg text-slate-900">Delete Expense Record</h3>
+                <p className="text-xs text-slate-500 font-mono">Ref: {expenseToDelete.id}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to remove this expense entry from plant accounts?
+            </p>
+
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 text-xs space-y-1">
+              <p className="font-bold text-slate-900">{expenseToDelete.title}</p>
+              <p className="text-slate-600">Category: {expenseToDelete.category} • Date: {expenseToDelete.date}</p>
+              <p className="text-rose-700 font-bold font-heading text-sm">Amount: ₹{expenseToDelete.amount.toLocaleString()} ({expenseToDelete.paymentMode})</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setExpenseToDelete(null)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteExpense(expenseToDelete.id)}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLEAR ALL EXPENSES MODAL */}
+      {isConfirmDeleteAllOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200 animate-in fade-in zoom-in-95 space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-heading font-black text-lg text-slate-900">Clear All Plant Expenses</h3>
+                <p className="text-xs text-rose-600 font-bold">Destructive Action</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to delete all <strong className="text-slate-900 font-bold">{expenses.length}</strong> recorded operational expenses?
+            </p>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 text-xs text-rose-900 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>This cannot be undone. Please ensure you have exported an expense register CSV backup.</span>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsConfirmDeleteAllOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAllExpenses}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete All Expenses</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

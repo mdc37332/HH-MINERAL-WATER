@@ -12,7 +12,8 @@ import {
   query,
   orderBy,
   where,
-  getDocFromServer
+  getDocFromServer,
+  arrayUnion
 } from 'firebase/firestore';
 import {
   getAuth,
@@ -27,7 +28,7 @@ import {
   updatePassword,
   User
 } from 'firebase/auth';
-import { Product, Order, OrderStatus, AdminSettings, CustomerProfile, CustomerAddress, ProductAuditLog } from '../types';
+import { Product, Order, OrderStatus, AdminSettings, CustomerProfile, CustomerAddress, ProductAuditLog, Invoice, WhatsAppNotificationState } from '../types';
 import { INITIAL_PRODUCTS, DEFAULT_ADMIN_SETTINGS } from '../data/initialProducts';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
@@ -88,7 +89,7 @@ export interface FirestoreErrorInfo {
   };
 }
 
-export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null): never {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -106,7 +107,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  return errInfo;
+  throw new Error(JSON.stringify(errInfo));
 }
 
 // Local storage fallback keys
@@ -161,8 +162,15 @@ export async function registerWithEmail(
     role: 'customer'
   };
 
-  await setDoc(doc(db, 'users', user.uid), newProfile, { merge: true });
-  localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(newProfile));
+  try {
+    await setDoc(doc(db, 'users', user.uid), newProfile, { merge: true });
+    localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(newProfile));
+  } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
+    }
+    console.warn('Firestore register user profile save error:', err);
+  }
 
   return user;
 }
@@ -215,6 +223,9 @@ export async function ensureCustomerProfileDoc(user: User): Promise<CustomerProf
       return defaultProfile;
     }
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.GET, `users/${user.uid}`);
+    }
     console.warn('Error fetching or creating user profile in Firestore:', err);
     const fallbackProfile: CustomerProfile = {
       uid: user.uid,
@@ -247,6 +258,9 @@ export function subscribeToCustomerProfile(
         }
       },
       (error) => {
+        if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
+          handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+        }
         console.warn('Customer profile listener error:', error);
         const cached = localStorage.getItem(LS_PROFILE_KEY);
         if (cached) {
@@ -272,6 +286,9 @@ export async function updateCustomerProfileInDb(
     const userDocRef = doc(db, 'users', uid);
     await updateDoc(userDocRef, data);
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.UPDATE, `users/${uid}`);
+    }
     console.warn('Firestore user profile update error:', err);
   }
 
@@ -323,6 +340,9 @@ export async function saveCustomerAddressInDb(
     const userDocRef = doc(db, 'users', uid);
     await updateDoc(userDocRef, { addresses: updatedList });
   } catch (e) {
+    if (e instanceof Error && (e.message.includes('permission') || e.message.includes('insufficient'))) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${uid}`);
+    }
     console.warn('Error updating address in Firestore:', e);
   }
 
@@ -355,6 +375,9 @@ export async function deleteCustomerAddressInDb(
     const userDocRef = doc(db, 'users', uid);
     await updateDoc(userDocRef, { addresses: updatedList });
   } catch (e) {
+    if (e instanceof Error && (e.message.includes('permission') || e.message.includes('insufficient'))) {
+      handleFirestoreError(e, OperationType.UPDATE, `users/${uid}`);
+    }
     console.warn('Error deleting address in Firestore:', e);
   }
 
@@ -406,11 +429,16 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
     const unsubscribe = onSnapshot(
       productsCol,
       async snapshot => {
-        // Check if catalog has already been marked as initialized in localStorage
-        const hasBeenInitialized = localStorage.getItem('hh_catalog_initialized_v1') === 'true';
+        if (snapshot.empty) {
+          const initStatus = localStorage.getItem('hh_catalog_initialized_v1');
+          if (initStatus) {
+            // Store has already been initialized in the past; empty means products were deleted
+            localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify([]));
+            onProductsChange([]);
+            return;
+          }
 
-        if (snapshot.empty && !hasBeenInitialized) {
-          // If Firestore is empty on the very first initial app startup, seed default products
+          // First-time setup on a fresh instance only:
           try {
             for (const prod of INITIAL_PRODUCTS) {
               const clean = sanitizeForFirestore(prod);
@@ -418,8 +446,23 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
             }
             localStorage.setItem('hh_catalog_initialized_v1', 'true');
           } catch (seedErr) {
-            console.warn('Firestore initial seeding error:', seedErr);
+            console.warn('Firestore auto seeding notice:', seedErr);
           }
+
+          // Check if we have valid cached products
+          const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+          if (cached) {
+            try {
+              const parsed = JSON.parse(cached);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                onProductsChange(parsed);
+                return;
+              }
+            } catch {
+              // ignore
+            }
+          }
+
           localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(INITIAL_PRODUCTS));
           onProductsChange(INITIAL_PRODUCTS);
           return;
@@ -433,16 +476,17 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
           }
         });
 
-        // Mark catalog as initialized so future deletions do not re-trigger seed
-        localStorage.setItem('hh_catalog_initialized_v1', 'true');
-
         // Sort by price ascending
         prods.sort((a, b) => (a.price || 0) - (b.price || 0));
 
+        localStorage.setItem('hh_catalog_initialized_v1', 'true');
         localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(prods));
         onProductsChange(prods);
       },
       error => {
+        if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
+          handleFirestoreError(error, OperationType.GET, 'products');
+        }
         console.warn('Firestore products listener fallback to local storage:', error);
         const cached = localStorage.getItem(LS_PRODUCTS_KEY);
         if (cached) {
@@ -464,7 +508,8 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
     console.warn('Error setting up product subscription:', e);
     const cached = localStorage.getItem(LS_PRODUCTS_KEY);
     try {
-      onProductsChange(cached ? JSON.parse(cached) : INITIAL_PRODUCTS);
+      const parsed = cached ? JSON.parse(cached) : null;
+      onProductsChange(Array.isArray(parsed) ? parsed : INITIAL_PRODUCTS);
     } catch {
       onProductsChange(INITIAL_PRODUCTS);
     }
@@ -524,10 +569,38 @@ export async function saveProductToDb(
   // Update Firestore with clean sanitized payload
   try {
     const docRef = doc(db, 'products', enrichedProduct.id);
-    const cleanDoc = sanitizeForFirestore(enrichedProduct);
+    let cleanDoc = sanitizeForFirestore(enrichedProduct);
+
+    // Safeguard Firestore 1 MiB (1,048,576 bytes) hard document limit
+    // Downscale or sanitize oversized base64 data URLs if present
+    if (cleanDoc.videoUrl && typeof cleanDoc.videoUrl === 'string' && cleanDoc.videoUrl.startsWith('data:') && cleanDoc.videoUrl.length > 250000) {
+      console.warn(`[FIRESTORE GUARD] Product ${cleanDoc.id} video data URL exceeds 250KB. Omitted from Firestore document to stay within 1MB limit.`);
+      cleanDoc.videoUrl = undefined;
+    }
+
+    if (cleanDoc.image && typeof cleanDoc.image === 'string' && cleanDoc.image.startsWith('data:') && cleanDoc.image.length > 400000) {
+      console.warn(`[FIRESTORE GUARD] Product ${cleanDoc.id} image data URL exceeds 400KB. Falling back to official HD image.`);
+      const defaultProd = INITIAL_PRODUCTS.find(p => p.id === cleanDoc.id);
+      cleanDoc.image = defaultProd?.image || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80';
+    }
+
+    // Measure total byte size
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(cleanDoc)).length;
+    if (payloadBytes > 900000) {
+      console.warn(`[FIRESTORE GUARD] Product ${cleanDoc.id} payload size is ${payloadBytes} bytes. Sanitizing heavy fields.`);
+      if (cleanDoc.image && cleanDoc.image.startsWith('data:')) {
+        const defaultProd = INITIAL_PRODUCTS.find(p => p.id === cleanDoc.id);
+        cleanDoc.image = defaultProd?.image || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80';
+      }
+      cleanDoc.videoUrl = undefined;
+    }
+
     await setDoc(docRef, cleanDoc, { merge: true });
     console.log(`[FIRESTORE SUCCESS] Product ${enrichedProduct.name} (${enrichedProduct.size}) synced with ID: ${enrichedProduct.id}`);
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.WRITE, `products/${enrichedProduct.id}`);
+    }
     console.error('Firestore product update error:', err);
   }
 
@@ -553,6 +626,7 @@ export async function saveProductToDb(
       'casePackSize'
     ];
 
+    const auditPromises: Promise<void>[] = [];
     for (const field of fieldsToTrack) {
       const oldVal = existingProduct[field];
       const newVal = enrichedProduct[field];
@@ -569,8 +643,11 @@ export async function saveProductToDb(
           timestamp: now,
           deviceInfo
         };
-        await recordProductAuditLogInDb(auditItem);
+        auditPromises.push(recordProductAuditLogInDb(auditItem).catch(e => console.warn('Audit record warning:', e)));
       }
+    }
+    if (auditPromises.length > 0) {
+      Promise.allSettled(auditPromises).catch(() => {});
     }
   } else {
     // Brand new product created
@@ -586,7 +663,7 @@ export async function saveProductToDb(
       timestamp: now,
       deviceInfo
     };
-    await recordProductAuditLogInDb(auditItem);
+    recordProductAuditLogInDb(auditItem).catch(e => console.warn('Audit record warning:', e));
   }
 
   return enrichedProduct;
@@ -611,6 +688,9 @@ export async function recordProductAuditLogInDb(log: ProductAuditLog): Promise<v
     const cleanLog = sanitizeForFirestore(log);
     await setDoc(docRef, cleanLog);
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.CREATE, `product_audit_logs/${log.id}`);
+    }
     console.warn('Firestore audit log save error:', err);
   }
 }
@@ -619,23 +699,31 @@ export async function recordProductAuditLogInDb(log: ProductAuditLog): Promise<v
 export function subscribeToProductAuditLogs(onLogsChange: (logs: ProductAuditLog[]) => void): () => void {
   try {
     const logsCol = collection(db, 'product_audit_logs');
-    const q = query(logsCol, orderBy('timestamp', 'desc'));
     const unsubscribe = onSnapshot(
-      q,
+      logsCol,
       snapshot => {
         const logs: ProductAuditLog[] = [];
         snapshot.forEach(docSnap => {
-          logs.push(docSnap.data() as ProductAuditLog);
+          const item = docSnap.data() as ProductAuditLog;
+          if (item && item.id) {
+            logs.push(item);
+          }
         });
+        // Sort newest first
+        logs.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
         localStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify(logs));
         onLogsChange(logs);
       },
       error => {
+        if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
+          handleFirestoreError(error, OperationType.GET, 'product_audit_logs');
+        }
         console.warn('Firestore audit logs listener notice, using local cache fallback:', error);
         const cached = localStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
         if (cached) {
           try {
-            onLogsChange(JSON.parse(cached));
+            const parsed = JSON.parse(cached);
+            onLogsChange(Array.isArray(parsed) ? parsed : []);
           } catch {
             onLogsChange([]);
           }
@@ -648,7 +736,12 @@ export function subscribeToProductAuditLogs(onLogsChange: (logs: ProductAuditLog
   } catch (e) {
     console.warn('Error setting up product audit logs subscription:', e);
     const cached = localStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
-    onLogsChange(cached ? JSON.parse(cached) : []);
+    try {
+      const parsed = cached ? JSON.parse(cached) : null;
+      onLogsChange(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      onLogsChange([]);
+    }
     return () => {};
   }
 }
@@ -676,6 +769,9 @@ export async function deleteProductFromDb(
     const docRef = doc(db, 'products', productId);
     await deleteDoc(docRef);
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.DELETE, `products/${productId}`);
+    }
     console.warn('Firestore product deletion error:', err);
   }
 
@@ -706,6 +802,9 @@ export async function deleteAllProductsFromDb(adminEmail: string = 'mdhussain170
     const deletes = snapshot.docs.map(d => deleteDoc(d.ref));
     await Promise.allSettled(deletes);
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.DELETE, 'products');
+    }
     console.warn('Firestore delete all products error:', err);
   }
 
@@ -740,6 +839,9 @@ export async function clearProductAuditLogsInDb(): Promise<void> {
     const deletes = snapshot.docs.map(d => deleteDoc(d.ref));
     await Promise.allSettled(deletes);
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.DELETE, 'product_audit_logs');
+    }
     console.warn('Firestore clear audit logs error:', err);
   }
 
@@ -754,18 +856,21 @@ export async function clearProductAuditLogsInDb(): Promise<void> {
 export function subscribeToOrders(onOrdersChange: (orders: Order[]) => void): () => void {
   try {
     const ordersCol = collection(db, 'orders');
-    const q = query(ordersCol, orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(
-      q,
+      ordersCol,
       snapshot => {
         const orders: Order[] = [];
         snapshot.forEach(docSnap => {
           orders.push(docSnap.data() as Order);
         });
+        orders.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
         localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(orders));
         onOrdersChange(orders);
       },
       error => {
+        if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
+          handleFirestoreError(error, OperationType.GET, 'orders');
+        }
         console.warn('Firestore orders listener fallback to local storage:', error);
         const cached = localStorage.getItem(LS_ORDERS_KEY);
         if (cached) {
@@ -806,6 +911,9 @@ export async function saveNewOrderToDb(order: Order): Promise<void> {
     const cleanDoc = sanitizeForFirestore(order);
     await setDoc(orderDoc, cleanDoc);
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.CREATE, `orders/${order.id}`);
+    }
     console.warn('Firestore save order error:', err);
   }
 }
@@ -847,9 +955,12 @@ export async function updateOrderStatusInDb(
     const orderDoc = doc(db, 'orders', orderId);
     await updateDoc(orderDoc, {
       status: newStatus,
-      statusHistory: [historyItem] // or arrayUnion in firestore if preferred
+      statusHistory: arrayUnion(historyItem)
     });
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`);
+    }
     console.warn('Firestore update order status error:', err);
   }
 }
@@ -873,14 +984,47 @@ export async function deleteOrderFromDb(orderId: string): Promise<void> {
     const orderDoc = doc(db, 'orders', orderId);
     await deleteDoc(orderDoc);
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.DELETE, `orders/${orderId}`);
+    }
     console.warn('Firestore delete order error:', err);
+  }
+}
+
+// Update Full Order in DB & Local Storage (Admin Custom Design & Price/Photo Editor)
+export async function updateFullOrderInDb(order: Order): Promise<void> {
+  // Update Local Storage
+  try {
+    const cached = localStorage.getItem(LS_ORDERS_KEY);
+    if (cached) {
+      const list: Order[] = JSON.parse(cached);
+      const idx = list.findIndex(o => o.id === order.id);
+      if (idx >= 0) {
+        list[idx] = order;
+        localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
+      }
+    }
+  } catch (e) {
+    console.warn('Local storage update full order error:', e);
+  }
+
+  // Update Firestore
+  try {
+    const orderDoc = doc(db, 'orders', order.id);
+    const cleanDoc = sanitizeForFirestore(order);
+    await setDoc(orderDoc, cleanDoc, { merge: true });
+  } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.UPDATE, `orders/${order.id}`);
+    }
+    console.warn('Firestore update full order error:', err);
   }
 }
 
 // Update Order WhatsApp Status
 export async function updateOrderWhatsAppStatusInDb(
   orderId: string,
-  status: 'SENT' | 'PENDING' | 'FAILED' | 'ACKNOWLEDGED',
+  statusOrNotification: 'SENT' | 'PENDING' | 'FAILED' | 'ACKNOWLEDGED' | WhatsAppNotificationState,
   retryCountIncrement = 0
 ): Promise<void> {
   const now = new Date().toISOString();
@@ -892,12 +1036,19 @@ export async function updateOrderWhatsAppStatusInDb(
       const list: Order[] = JSON.parse(cached);
       const idx = list.findIndex(o => o.id === orderId);
       if (idx >= 0) {
-        list[idx].whatsAppNotification.status = status;
-        if (status === 'SENT' || status === 'ACKNOWLEDGED') {
-          list[idx].whatsAppNotification.sentAt = now;
+        if (typeof statusOrNotification === 'object') {
+          list[idx].whatsAppNotification = {
+            ...list[idx].whatsAppNotification,
+            ...statusOrNotification,
+          };
+        } else {
+          list[idx].whatsAppNotification.status = statusOrNotification;
+          if (statusOrNotification === 'SENT' || statusOrNotification === 'ACKNOWLEDGED') {
+            list[idx].whatsAppNotification.sentAt = now;
+          }
+          list[idx].whatsAppNotification.lastAttempt = now;
+          list[idx].whatsAppNotification.retryCount += retryCountIncrement;
         }
-        list[idx].whatsAppNotification.lastAttempt = now;
-        list[idx].whatsAppNotification.retryCount += retryCountIncrement;
         localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
       }
     }
@@ -908,11 +1059,17 @@ export async function updateOrderWhatsAppStatusInDb(
   // Firestore
   try {
     const orderDoc = doc(db, 'orders', orderId);
-    await updateDoc(orderDoc, {
-      'whatsAppNotification.status': status,
-      'whatsAppNotification.lastAttempt': now,
-      ...(status === 'SENT' ? { 'whatsAppNotification.sentAt': now } : {})
-    });
+    if (typeof statusOrNotification === 'object') {
+      await updateDoc(orderDoc, {
+        whatsAppNotification: statusOrNotification,
+      });
+    } else {
+      await updateDoc(orderDoc, {
+        'whatsAppNotification.status': statusOrNotification,
+        'whatsAppNotification.lastAttempt': now,
+        ...(statusOrNotification === 'SENT' ? { 'whatsAppNotification.sentAt': now } : {})
+      });
+    }
   } catch (err) {
     console.warn('Firestore update WhatsApp status error:', err);
   }
@@ -933,9 +1090,91 @@ export function saveAdminSettings(settings: AdminSettings) {
   try {
     localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
     const settingsDoc = doc(db, 'settings', 'general');
-    setDoc(settingsDoc, settings, { merge: true }).catch(err => console.warn(err));
+    setDoc(settingsDoc, settings, { merge: true }).catch(err => {
+      if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+        handleFirestoreError(err, OperationType.WRITE, 'settings/general');
+      }
+      console.warn('Save settings error:', err);
+    });
   } catch (e) {
     console.warn('Save settings error:', e);
+  }
+}
+
+// Helper to sanitize Firestore document ID (slashes are not permitted in single-segment doc IDs)
+export function getInvoiceDocId(id: string): string {
+  return (id || '').replace(/\//g, '_').trim();
+}
+
+// GST Invoices Firestore & Local Storage operations
+export async function saveInvoiceToDb(invoice: Invoice): Promise<void> {
+  // Update local cache
+  try {
+    const cached = localStorage.getItem('hh_mineral_invoices_v1');
+    const list: Invoice[] = cached ? JSON.parse(cached) : [];
+    const idx = list.findIndex(inv => inv.id === invoice.id || inv.invoiceNumber === invoice.invoiceNumber);
+    if (idx >= 0) {
+      list[idx] = invoice;
+    } else {
+      list.unshift(invoice);
+    }
+    localStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(list));
+  } catch (e) {
+    console.warn('Local storage error saving invoice:', e);
+  }
+
+  // Update Firestore
+  try {
+    const docId = getInvoiceDocId(invoice.id || invoice.invoiceNumber);
+    const invoiceDoc = doc(db, 'invoices', docId);
+    const cleanDoc = sanitizeForFirestore(invoice);
+    await setDoc(invoiceDoc, cleanDoc, { merge: true });
+  } catch (err) {
+    const docId = getInvoiceDocId(invoice.id || invoice.invoiceNumber);
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.CREATE, `invoices/${docId}`);
+    }
+    console.warn('Firestore save invoice error:', err);
+  }
+}
+
+export function subscribeToInvoices(onInvoicesChange: (invoices: Invoice[]) => void): () => void {
+  try {
+    const invoicesCol = collection(db, 'invoices');
+    const unsubscribe = onSnapshot(
+      invoicesCol,
+      snapshot => {
+        const invoicesList: Invoice[] = [];
+        snapshot.forEach(docSnap => {
+          invoicesList.push(docSnap.data() as Invoice);
+        });
+        invoicesList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+        localStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(invoicesList));
+        onInvoicesChange(invoicesList);
+      },
+      error => {
+        if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
+          handleFirestoreError(error, OperationType.GET, 'invoices');
+        }
+        console.warn('Firestore invoices listener fallback to local cache:', error);
+        const cached = localStorage.getItem('hh_mineral_invoices_v1');
+        if (cached) {
+          try {
+            onInvoicesChange(JSON.parse(cached));
+          } catch {
+            onInvoicesChange([]);
+          }
+        } else {
+          onInvoicesChange([]);
+        }
+      }
+    );
+    return unsubscribe;
+  } catch (e) {
+    console.warn('Error setting up invoices subscription:', e);
+    const cached = localStorage.getItem('hh_mineral_invoices_v1');
+    onInvoicesChange(cached ? JSON.parse(cached) : []);
+    return () => {};
   }
 }
 
@@ -960,14 +1199,28 @@ export async function deleteInvoiceFromDb(invoiceId: string, invoiceNumber?: str
 
   // Delete from Firestore
   try {
-    const invoiceDoc = doc(db, 'invoices', invoiceId);
+    const docId = getInvoiceDocId(invoiceId);
+    const invoiceDoc = doc(db, 'invoices', docId);
     await deleteDoc(invoiceDoc);
+    if (invoiceNumber && invoiceNumber !== invoiceId) {
+      const altDocId = getInvoiceDocId(invoiceNumber);
+      await deleteDoc(doc(db, 'invoices', altDocId));
+    }
   } catch (err) {
     console.warn('Firestore delete invoice error:', err);
   }
 }
 
 export async function deleteAllInvoicesFromDb(): Promise<void> {
+  try {
+    const invoicesCol = collection(db, 'invoices');
+    const snapshot = await getDocs(invoicesCol);
+    const deletes = snapshot.docs.map(d => deleteDoc(d.ref));
+    await Promise.allSettled(deletes);
+  } catch (err) {
+    console.warn('Firestore clear invoices error:', err);
+  }
+
   try {
     localStorage.removeItem('hh_mineral_invoices_v1');
   } catch (e) {

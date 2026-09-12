@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { BulkInquiry } from '../../types';
 import { INITIAL_BULK_INQUIRIES } from '../../data/initialProducts';
+import { useStore } from '../../context/StoreContext';
 import {
   Calendar,
   Building2,
@@ -17,14 +18,18 @@ import {
   XCircle,
   AlertCircle,
   DollarSign,
-  Package
+  Package,
+  Trash2
 } from 'lucide-react';
 
 interface BulkInquiriesTabProps {
-  showToast: (title: string, message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
+  showToast?: (title: string, message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
 }
 
-export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast }) => {
+export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast: propShowToast }) => {
+  const store = useStore();
+  const showToast = propShowToast || store?.showToast || ((_t: string, _m: string) => {});
+
   const [inquiries, setInquiries] = useState<BulkInquiry[]>(() => {
     try {
       const saved = localStorage.getItem('hh_bulk_inquiries');
@@ -38,6 +43,8 @@ export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast })
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [selectedInquiry, setSelectedInquiry] = useState<BulkInquiry | null>(null);
+  const [inquiryToDelete, setInquiryToDelete] = useState<BulkInquiry | null>(null);
+  const [isConfirmDeleteAllOpen, setIsConfirmDeleteAllOpen] = useState(false);
 
   // New Inquiry Form State
   const [newForm, setNewForm] = useState<Partial<BulkInquiry>>({
@@ -63,6 +70,21 @@ export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast })
     } catch (e) {
       console.warn('Failed to save bulk inquiries:', e);
     }
+  };
+
+  const handleDeleteInquiry = (id: string) => {
+    const target = inquiries.find(i => i.id === id);
+    const updated = inquiries.filter(i => i.id !== id);
+    saveInquiries(updated);
+    setInquiryToDelete(null);
+    showToast('Inquiry Deleted', `Inquiry ${id} (${target?.clientName || 'Client'}) has been permanently deleted.`, 'info');
+  };
+
+  const handleDeleteAllInquiries = () => {
+    const count = inquiries.length;
+    saveInquiries([]);
+    setIsConfirmDeleteAllOpen(false);
+    showToast('All Inquiries Deleted', `Successfully deleted all ${count} wholesale inquiry records.`, 'info');
   };
 
   const handleCreateInquiry = (e: React.FormEvent) => {
@@ -245,6 +267,18 @@ export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast })
             <span>Export CSV</span>
           </button>
 
+          {inquiries.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIsConfirmDeleteAllOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl border border-rose-300 text-rose-700 hover:bg-rose-50 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+              title="Delete all wholesale inquiry records from system"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Delete All ({inquiries.length})</span>
+            </button>
+          )}
+
           <button
             onClick={() => setIsNewModalOpen(true)}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md cursor-pointer"
@@ -380,6 +414,16 @@ export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast })
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setInquiryToDelete(inq)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 transition-colors cursor-pointer"
+                    title="Delete Bulk Inquiry Record"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Delete</span>
+                  </button>
+
                   <button
                     onClick={() => handleSendWhatsAppQuote(inq)}
                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
@@ -572,6 +616,95 @@ export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast })
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* SINGLE INQUIRY DELETE CONFIRMATION MODAL */}
+      {inquiryToDelete && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200 animate-in fade-in zoom-in-95 space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-heading font-black text-lg text-slate-900">Delete Bulk Inquiry</h3>
+                <p className="text-xs text-slate-500 font-mono">Ref: {inquiryToDelete.id}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to permanently delete this bulk inquiry record? This action cannot be undone.
+            </p>
+
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 text-xs space-y-1">
+              <p className="font-bold text-slate-900">Client: {inquiryToDelete.clientName}</p>
+              {inquiryToDelete.organization && <p className="text-slate-600">Org: {inquiryToDelete.organization}</p>}
+              <p className="text-slate-600">Requirement: {inquiryToDelete.estimatedQuantity.toLocaleString()} x {inquiryToDelete.bottleSize} bottles</p>
+              <p className="text-cyan-800 font-bold">Total Quoted: ₹{inquiryToDelete.totalQuotedAmount?.toLocaleString() || '0'}</p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setInquiryToDelete(null)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteInquiry(inquiryToDelete.id)}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE ALL INQUIRIES CONFIRMATION MODAL */}
+      {isConfirmDeleteAllOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-rose-200 animate-in fade-in zoom-in-95 space-y-4">
+            <div className="flex items-center gap-3 pb-3 border-b border-slate-100">
+              <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-heading font-black text-lg text-slate-900">Clear All Bulk Inquiries</h3>
+                <p className="text-xs text-rose-600 font-bold">Destructive Action</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to delete all <strong className="text-slate-900 font-bold">{inquiries.length}</strong> wholesale and event inquiry records? All client records and quotations in this tab will be permanently removed.
+            </p>
+
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3 text-xs text-rose-900 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>This cannot be undone. Make sure you have exported a CSV copy if needed for records.</span>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsConfirmDeleteAllOpen(false)}
+                className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAllInquiries}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete All Inquiries</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

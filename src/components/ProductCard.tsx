@@ -11,14 +11,16 @@ import {
   Sparkles,
   ShieldCheck,
   Droplet,
-  Package
+  Package,
+  Video,
+  Play
 } from 'lucide-react';
 
 interface Props {
   product: Product;
 }
 
-const PACK_SIZES = [12, 24, 36, 48] as const;
+const DEFAULT_PACK_SIZES = [12, 24, 36, 48] as const;
 
 export const ProductCard: React.FC<Props> = ({ product }) => {
   const {
@@ -29,23 +31,47 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
     setIsCartOpen
   } = useStore();
 
-  const [selectedPackSize, setSelectedPackSize] = useState<number>(12);
+  const availablePackSizes = React.useMemo(() => {
+    if (product.packOptions && Array.isArray(product.packOptions) && product.packOptions.length > 0) {
+      return product.packOptions;
+    }
+    return DEFAULT_PACK_SIZES;
+  }, [product.packOptions]);
+
+  const [selectedPackSize, setSelectedPackSize] = useState<number>(() => {
+    if (product.packOptions && Array.isArray(product.packOptions) && product.packOptions.length > 0) {
+      return product.packOptions[0];
+    }
+    return 12;
+  });
+
+  const activePackSize = availablePackSizes.includes(selectedPackSize as any)
+    ? selectedPackSize
+    : availablePackSizes[0];
+
   const [packQuantity, setPackQuantity] = useState<number>(1); // Number of packs
   const [isAddedRecently, setIsAddedRecently] = useState(false);
 
-  const totalBottles = selectedPackSize * packQuantity;
-  const packPrice = product.price * selectedPackSize;
-  const totalAmount = product.price * totalBottles;
-  const totalMrp = product.mrp * totalBottles;
-  const totalSavings = totalMrp - totalAmount;
+  const totalBottles = activePackSize * packQuantity;
+  const packPrice = (product.price || 0) * activePackSize;
+  const totalAmount = (product.price || 0) * totalBottles;
+  const totalMrp = (product.mrp || product.price || 0) * totalBottles;
+  const totalSavings = Math.max(0, totalMrp - totalAmount);
+
+  const [imageError, setImageError] = useState(false);
+  const isOutOfStock = product.inStock === false || product.stockStatus === 'Out of Stock';
+
+  const defaultPlaceholder = 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80';
 
   const handleAddToCart = () => {
+    if (isOutOfStock) return;
     addToCart(product, totalBottles);
     setIsAddedRecently(true);
     setTimeout(() => setIsAddedRecently(false), 1500);
   };
 
   const handleBuyNow = () => {
+    if (isOutOfStock) return;
     addToCart(product, totalBottles);
     setIsCartOpen(true);
   };
@@ -57,16 +83,22 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
   };
 
   return (
-    <div className="group relative bg-white rounded-3xl border border-slate-200/90 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col overflow-hidden hover:-translate-y-1">
+    <div className={`group relative bg-white rounded-3xl border ${isOutOfStock ? 'border-slate-200/60 opacity-85' : 'border-slate-200/90 shadow-sm hover:shadow-xl hover:-translate-y-1'} transition-all duration-300 flex flex-col overflow-hidden`}>
       {/* Top Badges & Size Tag */}
       <div className="absolute top-3.5 left-3.5 right-3.5 z-10 flex items-center justify-between pointer-events-none">
         <span className="px-3 py-1 bg-slate-900/90 backdrop-blur-md text-white text-xs font-bold rounded-full shadow-md tracking-wide">
           {product.size}
         </span>
-        <span className="px-2.5 py-1 bg-black text-white text-[10px] font-black uppercase tracking-wider rounded-full shadow-md flex items-center gap-1 border border-slate-700">
-          <Package className="w-3 h-3 text-cyan-400" />
-          12–48 Pcs Packs Only
-        </span>
+        {isOutOfStock ? (
+          <span className="px-2.5 py-1 bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider rounded-full shadow-md flex items-center gap-1">
+            Out of Stock
+          </span>
+        ) : (
+          <span className="px-2.5 py-1 bg-black text-white text-[10px] font-black uppercase tracking-wider rounded-full shadow-md flex items-center gap-1 border border-slate-700">
+            <Package className="w-3 h-3 text-cyan-400" />
+            12–48 Pcs Packs Only
+          </span>
+        )}
       </div>
 
       {/* Product Image Stage */}
@@ -74,9 +106,18 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
         onClick={() => setSelectedProductForDetail(product)}
         className="relative h-60 sm:h-64 w-full bg-gradient-to-b from-slate-50 via-cyan-50/30 to-white flex items-center justify-center p-6 cursor-pointer overflow-hidden group-hover:bg-cyan-50/50 transition-colors"
       >
+        {product.videoUrl && (
+          <span className="absolute bottom-3 right-3 bg-purple-900/80 hover:bg-purple-900 text-purple-200 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 backdrop-blur-xs z-10 transition-colors">
+            <Play className="w-2.5 h-2.5 fill-current" />
+            <span>360° Video</span>
+          </span>
+        )}
+
         <img
-          src={product.image}
+          src={imageError ? defaultPlaceholder : (product.image || defaultPlaceholder)}
           alt={product.name}
+          referrerPolicy="no-referrer"
+          onError={() => setImageError(true)}
           className="max-h-full max-w-full object-contain filter drop-shadow-xl group-hover:scale-105 transition-transform duration-500"
           loading="lazy"
         />
@@ -88,7 +129,7 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
             e.stopPropagation();
             setSelectedProductForDetail(product);
           }}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-md hover:bg-white text-slate-800 text-xs font-semibold px-4 py-1.5 rounded-full shadow-md border border-slate-200 opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center gap-1.5"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-md hover:bg-white text-slate-800 text-xs font-semibold px-4 py-1.5 rounded-full shadow-md border border-slate-200 opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center gap-1.5 cursor-pointer"
         >
           <Info className="w-3.5 h-3.5 text-cyan-600" />
           <span>Mineral Specs & Details</span>
@@ -102,10 +143,10 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
           <div className="flex items-center gap-2 mb-2 text-[11px] font-semibold text-cyan-700">
             <span className="flex items-center gap-1 bg-cyan-50 px-2 py-0.5 rounded-md border border-cyan-200/60">
               <Droplet className="w-3 h-3 text-cyan-600" />
-              pH {product.mineralInfo?.ph ? product.mineralInfo.ph.split(' ')[0] : '7.4'}
+              pH {String(product.mineralInfo?.ph || '7.4').split(' ')[0]}
             </span>
             <span className="bg-sky-50 px-2 py-0.5 rounded-md border border-sky-200/60 text-sky-800">
-              TDS {product.mineralInfo?.tds ? product.mineralInfo.tds.split(' ')[0] : '120'}
+              TDS {String(product.mineralInfo?.tds || '120').split(' ')[0]}
             </span>
             <span className="hidden sm:inline bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 text-emerald-800">
               7-Stage UV
@@ -135,11 +176,11 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
             </span>
           </div>
 
-          {/* 12, 24, 36, 48 Pack Options */}
-          <div className="grid grid-cols-4 gap-1.5">
-            {PACK_SIZES.map(size => {
-              const isSelected = selectedPackSize === size;
-              const currentTotal = product.price * size;
+          {/* Dynamic Pack Options */}
+          <div className={`grid ${availablePackSizes.length === 3 ? 'grid-cols-3' : 'grid-cols-4'} gap-1.5`}>
+            {availablePackSizes.map(size => {
+              const isSelected = activePackSize === size;
+              const currentTotal = (product.price || 0) * size;
               return (
                 <button
                   key={size}
@@ -162,7 +203,11 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
 
           <div className="text-[10px] text-slate-500 flex items-center justify-between pt-0.5">
             <span className="italic text-slate-400">Single bottle not sold</span>
-            <span className="font-semibold text-emerald-700">Save ₹{totalSavings} in bulk</span>
+            {totalSavings > 0 ? (
+              <span className="font-semibold text-emerald-700">Save ₹{totalSavings} in bulk</span>
+            ) : (
+              <span className="font-semibold text-cyan-800">Factory direct price</span>
+            )}
           </div>
         </div>
 
@@ -180,7 +225,7 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
               )}
             </div>
             <p className="text-[11px] text-cyan-800 font-bold mt-0.5">
-              {totalBottles} bottles ({packQuantity} × {selectedPackSize}-Pack)
+              {totalBottles} bottles ({packQuantity} × {activePackSize}-Pack)
             </p>
           </div>
 
@@ -216,13 +261,18 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={handleAddToCart}
-              className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl font-bold text-xs transition-all duration-200 shadow-xs cursor-pointer ${
-                isAddedRecently
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-300/80 active:scale-95'
+              disabled={isOutOfStock}
+              className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl font-bold text-xs transition-all duration-200 shadow-xs ${
+                isOutOfStock
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  : isAddedRecently
+                  ? 'bg-emerald-600 text-white cursor-pointer'
+                  : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-300/80 active:scale-95 cursor-pointer'
               }`}
             >
-              {isAddedRecently ? (
+              {isOutOfStock ? (
+                <span>Unavailable</span>
+              ) : isAddedRecently ? (
                 <>
                   <Check className="w-3.5 h-3.5" />
                   <span>Added {totalBottles} Pcs!</span>
@@ -230,17 +280,22 @@ export const ProductCard: React.FC<Props> = ({ product }) => {
               ) : (
                 <>
                   <ShoppingBag className="w-3.5 h-3.5 text-cyan-600" />
-                  <span>Add {selectedPackSize}-Pack</span>
+                  <span>Add {packQuantity > 1 ? `${packQuantity}×${activePackSize}` : `${activePackSize}-Pack`}</span>
                 </>
               )}
             </button>
 
             <button
               onClick={handleBuyNow}
-              className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 text-white shadow-md active:scale-95 transition-all cursor-pointer"
+              disabled={isOutOfStock}
+              className={`flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl font-bold text-xs shadow-md transition-all ${
+                isOutOfStock
+                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  : 'bg-slate-900 hover:bg-slate-800 text-white active:scale-95 cursor-pointer'
+              }`}
             >
-              <Zap className="w-3.5 h-3.5 text-cyan-400 fill-cyan-400" />
-              <span>Buy {selectedPackSize}-Pack</span>
+              <Zap className={`w-3.5 h-3.5 ${isOutOfStock ? 'text-slate-400' : 'text-cyan-400 fill-cyan-400'}`} />
+              <span>{isOutOfStock ? 'Out of Stock' : `Buy ${packQuantity > 1 ? `${packQuantity}×${activePackSize}` : `${activePackSize}-Pack`}`}</span>
             </button>
           </div>
 

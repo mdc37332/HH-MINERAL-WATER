@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import {
   Product,
   CartItem,
@@ -21,6 +21,7 @@ import {
   deleteAllProductsFromDb,
   saveNewOrderToDb,
   updateOrderStatusInDb,
+  updateFullOrderInDb,
   deleteOrderFromDb,
   updateOrderWhatsAppStatusInDb,
   getAdminSettings,
@@ -35,7 +36,9 @@ import {
   deleteCustomerAddressInDb,
   logoutCustomer,
   subscribeToProductAuditLogs,
-  clearProductAuditLogsInDb
+  clearProductAuditLogsInDb,
+  saveInvoiceToDb,
+  subscribeToInvoices
 } from '../lib/firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import {
@@ -46,7 +49,10 @@ import {
   fetchOrdersApi,
   createOrderApi,
   updateOrderStatusApi,
+  updateOrderApi,
   deleteOrderApi,
+  deleteAllOrdersApi,
+  syncUserApi,
   fetchSettingsApi,
   saveSettingsApi,
   adminLoginStep1Api,
@@ -65,7 +71,12 @@ import {
   deleteAllInvoicesApi,
   AuditLogItem
 } from '../lib/api';
-import { formatOrderWhatsAppMessage, OWNER_WHATSAPP_NUMBER } from '../lib/whatsapp';
+import {
+  formatOrderWhatsAppMessage,
+  formatCustomerOrderConfirmationWhatsAppMessage,
+  normalizePhoneNumber,
+  OWNER_WHATSAPP_NUMBER
+} from '../lib/whatsapp';
 import { INITIAL_PRODUCTS, DEFAULT_ADMIN_SETTINGS } from '../data/initialProducts';
 import { generateGstInvoice } from '../lib/invoiceGenerator';
 import confetti from 'canvas-confetti';
@@ -142,7 +153,10 @@ interface StoreContextType {
   fetchInvoices: () => Promise<Invoice[]>;
   activeInvoice: Invoice | null;
   setActiveInvoice: (inv: Invoice | null) => void;
-  openInvoiceForOrder: (order: Order) => Promise<Invoice | null>;
+  activeInvoiceAutoPrint: boolean;
+  setActiveInvoiceAutoPrint: (autoPrint: boolean) => void;
+  openInvoiceForOrder: (order: Order, autoPrint?: boolean) => Promise<Invoice | null>;
+  openInvoiceById: (invoiceId: string, autoPrint?: boolean) => Promise<Invoice | null>;
   deleteInvoice: (invoiceId: string) => Promise<boolean>;
   deleteAllInvoices: () => Promise<boolean>;
 
@@ -152,13 +166,17 @@ interface StoreContextType {
   clearProductAuditLogs: () => Promise<boolean>;
 
   // Admin & Status Actions
+  addProduct: (product: Product) => Promise<void>;
   updateProduct: (product: Product) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
   resetProductsToDefault: () => Promise<void>;
   updateOrderStatus: (orderId: string, status: OrderStatus, note?: string) => Promise<void>;
+  updateOrder: (order: Order) => Promise<void>;
   cancelOrder: (orderId: string, reason?: string) => Promise<void>;
   deleteOrder: (orderId: string) => Promise<void>;
+  deleteAllOrders: () => Promise<void>;
+  deleteAllCustomOrders: () => Promise<void>;
   autoAdvanceOrder: (orderId: string) => Promise<void>;
   autoAdvanceAllEligibleOrders: () => Promise<number>;
   toggleAutoProgressOrders: (enabled?: boolean) => Promise<void>;
@@ -178,7 +196,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const saved = localStorage.getItem('hh_mineral_products_v1') || localStorage.getItem('hh_products_v1');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
     return INITIAL_PRODUCTS;
@@ -223,9 +241,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [trackOrderId, setTrackOrderId] = useState<string>('');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
+  // Toast Helpers - defined early and memoized
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const showToast = useCallback((title: string, message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => [...prev, { id, title, message, type }]);
+    setTimeout(() => {
+      removeToast(id);
+    }, 4500);
+  }, [removeToast]);
+
   // GST Invoices State
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [activeInvoice, setActiveInvoice] = useState<Invoice | null>(null);
+  const [activeInvoiceAutoPrint, setActiveInvoiceAutoPrint] = useState<boolean>(false);
 
   // Product Audit Logs State
   const [productAuditLogs, setProductAuditLogs] = useState<ProductAuditLog[]>([]);
@@ -346,6 +378,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
           const profile = await ensureCustomerProfileDoc(user);
           setCustomerProfile(profile);
+          syncUserApi(user.uid, user.email || 'customer@hhmineralwater.com', profile?.role || 'customer')
+            .catch(e => console.warn('Cloud SQL user sync warning:', e));
         } catch (err) {
           console.warn('Error loading customer profile on auth change:', err);
         }
@@ -382,10 +416,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Fetch and subscribe to products (both Cloud SQL and Firestore)
   useEffect(() => {
+    // Clean up any legacy oversized base64 strings in local storage
+    try {
+      const cached = localStorage.getItem('hh_mineral_products_v1');
+      if (cached) {
+        const parsed: Product[] = JSON.parse(cached);
+        let hasOversized = false;
+        const cleaned = parsed.map(p => {
+          if (p.image && typeof p.image === 'string' && p.image.startsWith('data:') && p.image.length > 350000) {
+            hasOversized = true;
+            const def = INITIAL_PRODUCTS.find(ip => ip.id === p.id);
+            return { ...p, image: def?.image || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80' };
+          }
+          return p;
+        });
+        if (hasOversized) {
+          localStorage.setItem('hh_mineral_products_v1', JSON.stringify(cleaned));
+        }
+      }
+    } catch {}
+
     // Initial fetch from backend PostgreSQL API
     fetchProductsApi().then(apiProds => {
       if (apiProds && apiProds.length > 0) {
-        setProducts(apiProds);
+        setProducts(prev => {
+          const map = new Map<string, Product>();
+          prev.forEach(p => map.set(p.id, p));
+          apiProds.forEach(p => map.set(p.id, p));
+          return Array.from(map.values()).sort((a, b) => (a.price || 0) - (b.price || 0));
+        });
         try {
           localStorage.setItem('hh_mineral_products_v1', JSON.stringify(apiProds));
         } catch {}
@@ -395,8 +454,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     const unsub = subscribeToProducts(latestProducts => {
-      if (!latestProducts) return;
-      setProducts(latestProducts);
+      if (!latestProducts || latestProducts.length === 0) {
+        return;
+      }
+      setProducts(prev => {
+        const map = new Map<string, Product>();
+        prev.forEach(p => map.set(p.id, p));
+        latestProducts.forEach(p => map.set(p.id, p));
+        return Array.from(map.values()).sort((a, b) => (a.price || 0) - (b.price || 0));
+      });
 
       // Auto synchronize cart items with real-time product price & stock updates
       setCart(currentCart => {
@@ -424,10 +490,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => unsub();
   }, []);
 
-  // Subscribe to real-time orders
+  // Subscribe to real-time orders (both Cloud SQL and Firestore)
   useEffect(() => {
+    fetchOrdersApi().then(apiOrders => {
+      if (apiOrders && apiOrders.length > 0) {
+        setOrders(prev => {
+          const map = new Map<string, Order>();
+          apiOrders.forEach(o => map.set(o.id, o));
+          prev.forEach(o => map.set(o.id, o));
+          return Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        });
+      }
+    }).catch(err => {
+      console.warn('Initial orders API fetch notice:', err);
+    });
+
     const unsub = subscribeToOrders(latestOrders => {
-      setOrders(latestOrders);
+      setOrders(prev => {
+        if (!latestOrders || latestOrders.length === 0) {
+          return prev;
+        }
+        const map = new Map<string, Order>();
+        prev.forEach(o => map.set(o.id, o));
+        latestOrders.forEach(o => map.set(o.id, o));
+        return Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      });
     });
     return () => unsub();
   }, []);
@@ -436,6 +523,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     const unsub = subscribeToProductAuditLogs(latestLogs => {
       setProductAuditLogs(latestLogs);
+    });
+    return () => unsub();
+  }, []);
+
+  // Subscribe to real-time invoices (both Cloud SQL and Firestore)
+  useEffect(() => {
+    fetchInvoicesApi().then(apiInvoices => {
+      if (apiInvoices && apiInvoices.length > 0) {
+        setInvoices(prev => {
+          const map = new Map<string, Invoice>();
+          apiInvoices.forEach(inv => map.set(inv.id, inv));
+          prev.forEach(inv => map.set(inv.id, inv));
+          return Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        });
+      }
+    }).catch(err => {
+      console.warn('Initial invoices API fetch notice:', err);
+    });
+
+    const unsub = subscribeToInvoices(latestInvoices => {
+      if (latestInvoices && latestInvoices.length > 0) {
+        setInvoices(prev => {
+          const map = new Map<string, Invoice>();
+          prev.forEach(inv => map.set(inv.id, inv));
+          latestInvoices.forEach(inv => map.set(inv.id, inv));
+          return Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        });
+      }
     });
     return () => unsub();
   }, []);
@@ -478,19 +593,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
     showToast('Audit Log Cleared', 'Product change audit history has been cleared.', 'info');
     return true;
-  };
-
-  // Toast Helper
-  const showToast = (title: string, message: string, type: 'success' | 'info' | 'warning' | 'error' = 'success') => {
-    const id = Math.random().toString(36).substring(2, 9);
-    setToasts(prev => [...prev, { id, title, message, type }]);
-    setTimeout(() => {
-      removeToast(id);
-    }, 4500);
-  };
-
-  const removeToast = (id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id));
   };
 
   // Auth modal open/close helpers
@@ -558,9 +660,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Add to cart
   const addToCart = (product: Product, quantity: number, customDetails?: CustomDesignDetails) => {
     const isCustom = !!customDetails;
-    // For custom design orders: minimum 600 pieces and unit price is double normal bottle price (or admin-configured customDesignPrice)
+    // For custom design orders: minimum 600 pieces and unit price is base custom rate (or admin custom price override) + enabled features
     const effectiveQty = isCustom ? Math.max(600, quantity) : quantity;
-    const unitPrice = isCustom ? (product.customDesignPrice || product.price * 2) : product.price;
+    const baseCustomPrice = customDetails?.customPricePerBottle || product.customDesignPrice || (product.price * 2);
+    const featuresExtra = isCustom && customDetails?.customFeatures
+      ? customDetails.customFeatures.filter(f => f.enabled).reduce((sum, f) => sum + (f.pricePerBottle || 0), 0)
+      : 0;
+    const unitPrice = isCustom ? (baseCustomPrice + featuresExtra) : product.price;
 
     const cartItemId = isCustom
       ? `custom-${product.id}-${Date.now()}`
@@ -572,7 +678,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const existingIdx = prev.findIndex(item => item.cartItemId === cartItemId);
         if (existingIdx >= 0) {
           const updated = [...prev];
-          updated[existingIdx].quantity += effectiveQty;
+          updated[existingIdx] = {
+            ...updated[existingIdx],
+            quantity: updated[existingIdx].quantity + effectiveQty
+          };
           return updated;
         }
       }
@@ -649,15 +758,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setCart([]);
   };
 
-  // Trigger WhatsApp notification for an order
+  // Trigger WhatsApp notification for an order (Maintains existing admin WhatsApp notification)
   const triggerWhatsAppNotification = async (order: Order, isManualRetry = false): Promise<boolean> => {
     const messageFormatted = formatOrderWhatsAppMessage(order);
     try {
-      // In web app, we generate direct WhatsApp action and update Firestore status to SENT
+      // In web app, we ensure state is recorded and update Firestore status to SENT
       await updateOrderWhatsAppStatusInDb(order.id, 'SENT', isManualRetry ? 1 : 0);
       showToast(
         'WhatsApp Alert Dispatched',
-        `Order confirmation formatted and dispatched to HH Owner (${OWNER_WHATSAPP_NUMBER}).`,
+        `Order confirmation formatted and dispatched to HH Admin (${OWNER_WHATSAPP_NUMBER}).`,
         'success'
       );
       return true;
@@ -666,7 +775,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       await updateOrderWhatsAppStatusInDb(order.id, 'FAILED', isManualRetry ? 1 : 0);
       showToast(
         'WhatsApp Status Notice',
-        `Direct WhatsApp link ready for manual dispatch to ${OWNER_WHATSAPP_NUMBER}.`,
+        `Direct WhatsApp link ready for dispatch to ${OWNER_WHATSAPP_NUMBER}.`,
         'warning'
       );
       return false;
@@ -685,14 +794,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const isCustomOrder = cart.some(item => item.isCustomDesign);
     const hasOriginalImage = cart.some(
-      item => item.customDesignDetails?.uploadedImages && item.customDesignDetails.uploadedImages.length > 0
+      item => item.customDesignDetails?.uploadedImages && item.customDesignDetails.uploadedImages.some(img => img.mediaType !== 'video' && !img.type?.startsWith('video/'))
     );
+    const hasUploadedVideo = cart.some(
+      item =>
+        (item.customDesignDetails?.uploadedVideos && item.customDesignDetails.uploadedVideos.length > 0) ||
+        (item.customDesignDetails?.uploadedImages && item.customDesignDetails.uploadedImages.some(img => img.mediaType === 'video' || img.type?.startsWith('video/')))
+    );
+
+    // Normalize customer phone for WhatsApp delivery
+    const phoneNorm = normalizePhoneNumber(customer.phone);
+    const normalizedCustomerPhone = phoneNorm.isValid ? phoneNorm.normalized : customer.phone;
 
     const newOrder: Order = {
       id: orderId,
       userUid: currentUser?.uid,
       createdAt: now,
-      customer,
+      customer: {
+        ...customer,
+        phone: phoneNorm.isValid ? phoneNorm.display : customer.phone,
+      },
       items: [...cart],
       subtotal: cartSubtotal,
       deliveryCharge: deliveryFee,
@@ -703,6 +824,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       orderNotes: notes,
       isCustomOrder,
       hasOriginalImage,
+      hasUploadedVideo,
       status: 'New',
       statusHistory: [
         {
@@ -715,7 +837,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         status: 'PENDING',
         targetPhone: OWNER_WHATSAPP_NUMBER,
         messageFormatted: '',
-        retryCount: 0
+        retryCount: 0,
+        customerNotification: {
+          status: 'PENDING',
+          targetPhone: normalizedCustomerPhone,
+          recipientName: customer.name,
+          messageFormatted: '',
+          retryCount: 0,
+          lastAttempt: now,
+        },
+        adminNotification: {
+          status: 'PENDING',
+          targetPhone: OWNER_WHATSAPP_NUMBER,
+          recipientName: 'HH Admin (Hussain)',
+          messageFormatted: '',
+          retryCount: 0,
+          lastAttempt: now,
+        }
       }
     };
 
@@ -724,24 +862,32 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const generatedInvoice = generateGstInvoice(newOrder, adminSettings, nextSeq);
     newOrder.invoiceNumber = generatedInvoice.invoiceNumber;
 
-    // Format WhatsApp message with generated invoice number
-    const formattedMessage = formatOrderWhatsAppMessage(newOrder);
-    newOrder.whatsAppNotification.messageFormatted = formattedMessage;
+    // Format WhatsApp messages
+    const formattedAdminMessage = formatOrderWhatsAppMessage(newOrder);
+    const formattedCustomerMessage = formatCustomerOrderConfirmationWhatsAppMessage(newOrder);
+    newOrder.whatsAppNotification.messageFormatted = formattedAdminMessage;
+    if (newOrder.whatsAppNotification.adminNotification) {
+      newOrder.whatsAppNotification.adminNotification.messageFormatted = formattedAdminMessage;
+    }
+    if (newOrder.whatsAppNotification.customerNotification) {
+      newOrder.whatsAppNotification.customerNotification.messageFormatted = formattedCustomerMessage;
+    }
 
     // 1. Save to Database (Firestore & Cloud SQL) and generate Invoice
-    await Promise.allSettled([
+    const [dbSaveRes, invSaveRes, apiOrderRes] = await Promise.allSettled([
       saveNewOrderToDb(newOrder),
+      saveInvoiceToDb(generatedInvoice),
       createOrderApi(newOrder),
       generateInvoiceApi(newOrder, nextSeq),
     ]);
 
-    // Update local invoices collection
-    setInvoices(prev => [generatedInvoice, ...prev.filter(inv => inv.orderId !== newOrder.id)]);
-
-    // 2. Trigger WhatsApp status & dispatch
     await triggerWhatsAppNotification(newOrder, false);
 
-    // 3. Clear cart & set recent order
+    // Update local state collections
+    setOrders(prev => [newOrder, ...prev.filter(o => o.id !== newOrder.id)]);
+    setInvoices(prev => [generatedInvoice, ...prev.filter(inv => inv.orderId !== newOrder.id)]);
+
+    // 2. Clear cart & set recent order
     clearCart();
     setRecentCreatedOrder(newOrder);
     setTrackOrderId(orderId);
@@ -769,7 +915,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return list;
   };
 
-  const openInvoiceForOrder = async (order: Order): Promise<Invoice | null> => {
+  const openInvoiceForOrder = async (order: Order, autoPrint = false): Promise<Invoice | null> => {
     // Check if we already have it in local state
     let target = invoices.find(inv => inv.orderId === order.id);
     if (!target) {
@@ -778,9 +924,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!target) {
       // Generate client-side if not found
       target = generateGstInvoice(order, adminSettings, (invoices.length || 0) + 1);
+      saveInvoiceToDb(target).catch(e => console.warn('Firestore invoice sync error:', e));
       generateInvoiceApi(order).catch(e => console.warn('Background invoice sync error:', e));
     }
+    setActiveInvoiceAutoPrint(autoPrint);
     setActiveInvoice(target);
+    return target;
+  };
+
+  const openInvoiceById = async (invoiceId: string, autoPrint = false): Promise<Invoice | null> => {
+    let target = invoices.find(inv => inv.id === invoiceId || inv.invoiceNumber === invoiceId || inv.orderId === invoiceId) || null;
+    if (!target) {
+      const list = await fetchInvoicesApi();
+      target = list.find(inv => inv.id === invoiceId || inv.invoiceNumber === invoiceId || inv.orderId === invoiceId) || null;
+    }
+    if (target) {
+      setActiveInvoiceAutoPrint(autoPrint);
+      setActiveInvoice(target);
+    }
     return target;
   };
 
@@ -832,6 +993,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     fetchInvoices();
   }, []);
 
+  // Add or Update Product from Admin
+  const addProduct = async (product: Product) => {
+    return await updateProduct(product);
+  };
+
   // Update Product from Admin
   const updateProduct = async (product: Product) => {
     const adminIdentity = adminEmail || 'mdhussain170707@gmail.com';
@@ -853,18 +1019,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // 2. Persist to Firestore (real-time sync across all devices) and Cloud SQL backend in parallel
     try {
-      await Promise.allSettled([
+      const syncPromise = Promise.allSettled([
         saveProductToDb(product, adminIdentity, 'Authorized Admin').catch(e => console.warn('Firestore product sync warning:', e)),
         saveProductApi(product, adminToken || '170707').then(saved => {
           if (saved) {
             setProducts(prev => {
               const idx = prev.findIndex(p => p.id === saved.id);
               let nextList: Product[];
+              const mergedProduct = { ...product, ...saved, videoUrl: product.videoUrl || saved.videoUrl };
               if (idx >= 0) {
                 nextList = [...prev];
-                nextList[idx] = saved;
+                nextList[idx] = mergedProduct;
               } else {
-                nextList = [saved, ...prev];
+                nextList = [mergedProduct, ...prev];
               }
               try {
                 localStorage.setItem('hh_mineral_products_v1', JSON.stringify(nextList));
@@ -874,6 +1041,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         }).catch(e => console.warn('Backend API save warning:', e))
       ]);
+      // Give sync up to 2.5s before concluding so UI remains snappy
+      await Promise.race([syncPromise, new Promise(resolve => setTimeout(resolve, 2500))]);
     } catch (err) {
       console.warn('Backend sync error for product:', err);
     }
@@ -888,6 +1057,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const filtered = prev.filter(p => p.id !== productId);
       try {
         localStorage.setItem('hh_mineral_products_v1', JSON.stringify(filtered));
+        if (filtered.length === 0) {
+          localStorage.setItem('hh_catalog_initialized_v1', 'cleared');
+        }
+      } catch {}
+      return filtered;
+    });
+
+    // Also remove from cart if customer or admin has added it
+    setCart(prev => {
+      const filtered = prev.filter(item => item.productId !== productId);
+      try {
+        localStorage.setItem('hh_cart_v1', JSON.stringify(filtered));
       } catch {}
       return filtered;
     });
@@ -908,9 +1089,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const adminIdentity = adminEmail || 'mdhussain170707@gmail.com';
     setProducts([]);
     try {
+      localStorage.setItem('hh_catalog_initialized_v1', 'cleared');
       localStorage.setItem('hh_mineral_products_v1', JSON.stringify([]));
-      localStorage.removeItem('hh_mineral_products_v1');
-      localStorage.removeItem('hh_products_v1');
       await Promise.allSettled([
         deleteAllProductsFromDb(adminIdentity),
         deleteAllProductsApi(adminToken || '170707'),
@@ -925,6 +1105,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const resetProductsToDefault = async () => {
     setProducts(INITIAL_PRODUCTS);
     try {
+      localStorage.setItem('hh_catalog_initialized_v1', 'true');
       localStorage.setItem('hh_mineral_products_v1', JSON.stringify(INITIAL_PRODUCTS));
       for (const p of INITIAL_PRODUCTS) {
         await saveProductToDb(p);
@@ -955,6 +1136,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updateOrderStatusApi(orderId, status, [historyItem], adminToken),
     ]);
     showToast('Order Status Updated', `Order ${orderId} is now marked as ${status}.`, 'info');
+  };
+
+  // Update Full Order (e.g. Custom Design Studio adjustments, price, photos, items)
+  const updateOrder = async (updatedOrder: Order) => {
+    setOrders(prev => prev.map(o => o.id === updatedOrder.id ? updatedOrder : o));
+    try {
+      await Promise.allSettled([
+        updateFullOrderInDb(updatedOrder),
+        updateOrderApi(updatedOrder, adminToken || '170707'),
+      ]);
+    } catch (err) {
+      console.warn('Failed to update full order:', err);
+    }
+    showToast('Custom Order Updated', `Order ${updatedOrder.id} successfully updated with new pricing, photos & specs.`, 'success');
   };
 
   // Helper for sequential status pipeline
@@ -1021,6 +1216,45 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     showToast('Order Deleted', `Order ${orderId} has been permanently deleted from records.`, 'info');
+  };
+
+  // Delete All Orders Permanently (Admin Only)
+  const deleteAllOrders = async () => {
+    const previousOrders = [...orders];
+    setOrders([]);
+    setRecentCreatedOrder(null);
+    setTrackOrderId('');
+    try {
+      localStorage.removeItem('hh_orders');
+      await Promise.allSettled([
+        deleteAllOrdersApi(adminToken || '170707'),
+        ...previousOrders.map(o => deleteOrderFromDb(o.id)),
+      ]);
+    } catch (err) {
+      console.warn('Backend clear all orders error:', err);
+    }
+    showToast('All Orders Deleted', `Successfully removed all ${previousOrders.length} order records.`, 'info');
+  };
+
+  // Delete All Custom Design Orders (Admin Only)
+  const deleteAllCustomOrders = async () => {
+    const customOrders = orders.filter(o => o.isCustomOrder);
+    if (customOrders.length === 0) {
+      showToast('No Custom Orders', 'There are no custom design orders to delete.', 'info');
+      return;
+    }
+    setOrders(prev => prev.filter(o => !o.isCustomOrder));
+    try {
+      await Promise.allSettled(
+        customOrders.map(o => Promise.allSettled([
+          deleteOrderFromDb(o.id),
+          deleteOrderApi(o.id, adminToken || '170707')
+        ]))
+      );
+    } catch (err) {
+      console.warn('Backend delete custom orders error:', err);
+    }
+    showToast('Custom Orders Cleared', `Successfully deleted all ${customOrders.length} custom design orders.`, 'info');
   };
 
   // Auto-Advance single order to next stage
@@ -1179,7 +1413,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         fetchInvoices,
         activeInvoice,
         setActiveInvoice,
+        activeInvoiceAutoPrint,
+        setActiveInvoiceAutoPrint,
         openInvoiceForOrder,
+        openInvoiceById,
         deleteInvoice,
         deleteAllInvoices,
 
@@ -1188,13 +1425,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         fetchProductAuditLogs,
         clearProductAuditLogs,
 
+        addProduct,
         updateProduct,
         deleteProduct,
         deleteAllProducts,
         resetProductsToDefault,
         updateOrderStatus,
+        updateOrder,
         cancelOrder,
         deleteOrder,
+        deleteAllOrders,
+        deleteAllCustomOrders,
         autoAdvanceOrder,
         autoAdvanceAllEligibleOrders,
         toggleAutoProgressOrders,

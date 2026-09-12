@@ -5,14 +5,15 @@ import {
   Sparkles,
   ShieldCheck,
   Award,
-  ArrowRight,
   Truck,
   CheckCircle2,
   Phone,
   Layers,
   Heart,
   Edit3,
-  Camera
+  Camera,
+  Package,
+  ArrowRight
 } from 'lucide-react';
 import { getCustomerSupportWhatsAppUrl, OWNER_WHATSAPP_NUMBER } from '../lib/whatsapp';
 
@@ -47,17 +48,18 @@ export const HeroSection: React.FC = () => {
               Experience ultra-pure mineral water purified through our signature <strong>7-Stage UV & Ozonated</strong> filtration with balanced <strong>7.4 pH alkaline</strong> minerals. Available in 250ml, 500ml, 1L, and 2L, starting at just <strong>₹5</strong>.
             </p>
 
-            {/* CTAs */}
-            <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3.5 pt-2">
+            {/* Quick Action Buttons */}
+            <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-2">
               <button
                 onClick={() => {
                   setCurrentSection('products');
-                  window.scrollTo({ top: 500, behavior: 'smooth' });
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-sm px-8 py-4 rounded-2xl shadow-lg shadow-cyan-500/20 active:scale-95 transition-all cursor-pointer"
+                className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-cyan-400 to-sky-400 hover:from-cyan-300 hover:to-sky-300 text-slate-950 font-extrabold text-sm shadow-lg shadow-cyan-500/25 active:scale-95 transition-all cursor-pointer"
               >
-                <span>Shop Mineral Bottles (From ₹5)</span>
-                <ArrowRight className="w-4 h-4 text-slate-950" />
+                <Package className="w-4 h-4" />
+                <span>Explore Bottle Catalog</span>
+                <ArrowRight className="w-4 h-4 ml-0.5" />
               </button>
 
               <button
@@ -65,10 +67,10 @@ export const HeroSection: React.FC = () => {
                   setCurrentSection('custom-design');
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-bold text-sm px-6 py-4 rounded-2xl border border-white/25 backdrop-blur-md transition-all cursor-pointer"
+                className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/20 text-white font-bold text-sm backdrop-blur-md active:scale-95 transition-all cursor-pointer"
               >
-                <Sparkles className="w-4 h-4 text-cyan-400" />
-                <span>Custom Label Design for Events</span>
+                <Sparkles className="w-4 h-4 text-cyan-300" />
+                <span>Custom Logo Printing</span>
               </button>
             </div>
 

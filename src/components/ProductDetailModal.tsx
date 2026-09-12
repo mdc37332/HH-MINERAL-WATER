@@ -15,7 +15,9 @@ import {
   ThermometerSun,
   Flame,
   Zap,
-  Package
+  Package,
+  Video,
+  Play
 } from 'lucide-react';
 
 interface Props {
@@ -23,7 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-const PACK_SIZES = [12, 24, 36, 48] as const;
+const DEFAULT_PACK_SIZES = [12, 24, 36, 48] as const;
 
 export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
   const {
@@ -33,22 +35,46 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
     setIsCartOpen
   } = useStore();
 
-  const [selectedPackSize, setSelectedPackSize] = useState<number>(12);
+  const availablePackSizes = React.useMemo(() => {
+    if (product.packOptions && Array.isArray(product.packOptions) && product.packOptions.length > 0) {
+      return product.packOptions;
+    }
+    return DEFAULT_PACK_SIZES;
+  }, [product.packOptions]);
+
+  const [selectedPackSize, setSelectedPackSize] = useState<number>(() => {
+    if (product.packOptions && Array.isArray(product.packOptions) && product.packOptions.length > 0) {
+      return product.packOptions[0];
+    }
+    return 12;
+  });
+
+  const activePackSize = availablePackSizes.includes(selectedPackSize as any)
+    ? selectedPackSize
+    : availablePackSizes[0];
+
   const [packQuantity, setPackQuantity] = useState<number>(1);
   const [activeTab, setActiveTab] = useState<'overview' | 'minerals' | 'purification'>('overview');
+  const [imageError, setImageError] = useState(false);
+  const [mediaMode, setMediaMode] = useState<'photo' | 'video'>(product.videoUrl ? 'photo' : 'photo');
 
-  const totalBottles = selectedPackSize * packQuantity;
-  const packPrice = product.price * selectedPackSize;
-  const totalAmount = product.price * totalBottles;
-  const totalMrp = product.mrp * totalBottles;
-  const totalSavings = totalMrp - totalAmount;
+  const isOutOfStock = product.inStock === false || product.stockStatus === 'Out of Stock';
+  const defaultPlaceholder = 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80';
+
+  const totalBottles = activePackSize * packQuantity;
+  const packPrice = (product.price || 0) * activePackSize;
+  const totalAmount = (product.price || 0) * totalBottles;
+  const totalMrp = (product.mrp || product.price || 0) * totalBottles;
+  const totalSavings = Math.max(0, totalMrp - totalAmount);
 
   const handleAddToCart = () => {
+    if (isOutOfStock) return;
     addToCart(product, totalBottles);
     onClose();
   };
 
   const handleBuyNow = () => {
+    if (isOutOfStock) return;
     addToCart(product, totalBottles);
     onClose();
     setIsCartOpen(true);
@@ -67,7 +93,7 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-20 w-9 h-9 rounded-full bg-slate-100/90 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition-colors shadow-xs"
+          className="absolute top-4 right-4 z-30 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-slate-700 flex items-center justify-center transition-colors shadow-md border border-slate-200 cursor-pointer"
           aria-label="Close modal"
         >
           <X className="w-5 h-5" />
@@ -76,15 +102,67 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
         <div className="grid grid-cols-1 md:grid-cols-2">
           {/* Left: Product Visual Stage */}
           <div className="bg-gradient-to-b from-cyan-50 via-sky-50 to-slate-100 p-8 flex flex-col items-center justify-center relative border-b md:border-b-0 md:border-r border-slate-200">
-            <span className="absolute top-4 left-4 px-3 py-1 bg-slate-900 text-white text-xs font-bold rounded-full shadow-md">
-              {product.size} Edition
-            </span>
+            <div className="absolute top-4 left-4 flex items-center gap-2 z-20">
+              <span className="px-3 py-1 bg-slate-900 text-white text-xs font-bold rounded-full shadow-md">
+                {product.size} Edition
+              </span>
+
+              {/* Photo / Video Switcher safely positioned without overlapping close button */}
+              {product.videoUrl && (
+                <div className="flex items-center bg-white/90 backdrop-blur-md rounded-full p-0.5 border border-slate-200 shadow-xs">
+                  <button
+                    type="button"
+                    onClick={() => setMediaMode('photo')}
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold transition-all cursor-pointer ${
+                      mediaMode === 'photo'
+                        ? 'bg-slate-900 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Photo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMediaMode('video')}
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                      mediaMode === 'video'
+                        ? 'bg-purple-600 text-white shadow-2xs'
+                        : 'text-purple-700 hover:text-purple-900'
+                    }`}
+                  >
+                    <Play className="w-2.5 h-2.5 fill-current" />
+                    <span>Video</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="w-64 h-72 flex items-center justify-center">
-              <img
-                src={product.image}
-                alt={product.name}
-                className="max-h-full max-w-full object-contain filter drop-shadow-2xl hover:scale-105 transition-transform duration-300"
-              />
+              {mediaMode === 'video' && product.videoUrl ? (
+                <div className="w-full h-full rounded-2xl overflow-hidden shadow-2xl bg-black border border-slate-800 relative group flex items-center justify-center">
+                  <video
+                    src={product.videoUrl}
+                    controls
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="w-full h-full object-contain"
+                  />
+                  <div className="absolute top-2 left-2 pointer-events-none bg-purple-600/90 text-white text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md shadow-xs backdrop-blur-xs flex items-center gap-1">
+                    <Video className="w-2.5 h-2.5" />
+                    <span>360° Video Reel</span>
+                  </div>
+                </div>
+              ) : (
+                <img
+                  src={imageError ? defaultPlaceholder : (product.image || defaultPlaceholder)}
+                  alt={product.name}
+                  referrerPolicy="no-referrer"
+                  onError={() => setImageError(true)}
+                  className="max-h-full max-w-full object-contain filter drop-shadow-2xl hover:scale-105 transition-transform duration-300"
+                />
+              )}
             </div>
 
             {/* Pack Announcement Badge */}
@@ -142,10 +220,10 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
                   </span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-2">
-                  {PACK_SIZES.map(size => {
-                    const isSelected = selectedPackSize === size;
-                    const cPrice = product.price * size;
+                <div className={`grid ${availablePackSizes.length === 3 ? 'grid-cols-3' : 'grid-cols-4'} gap-2`}>
+                  {availablePackSizes.map(size => {
+                    const isSelected = activePackSize === size;
+                    const cPrice = (product.price || 0) * size;
                     return (
                       <button
                         key={size}
@@ -323,17 +401,27 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={handleAddToCart}
-                  className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-xs bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-300 transition-all cursor-pointer"
+                  disabled={isOutOfStock}
+                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-xs transition-all ${
+                    isOutOfStock
+                      ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                      : 'bg-cyan-50 hover:bg-cyan-100 text-cyan-800 border border-cyan-300 cursor-pointer'
+                  }`}
                 >
                   <ShoppingBag className="w-4 h-4 text-cyan-600" />
-                  <span>Add {selectedPackSize}-Pack to Bag</span>
+                  <span>{isOutOfStock ? 'Out of Stock' : `Add ${packQuantity > 1 ? `${packQuantity}×${activePackSize}` : `${activePackSize}-Pack`} to Bag`}</span>
                 </button>
                 <button
                   onClick={handleBuyNow}
-                  className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-xs bg-slate-900 hover:bg-slate-800 text-white shadow-lg shadow-slate-900/20 transition-all cursor-pointer"
+                  disabled={isOutOfStock}
+                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-xs shadow-lg transition-all ${
+                    isOutOfStock
+                      ? 'bg-slate-200 text-slate-400 shadow-none cursor-not-allowed'
+                      : 'bg-slate-900 hover:bg-slate-800 text-white shadow-slate-900/20 cursor-pointer'
+                  }`}
                 >
-                  <Zap className="w-4 h-4 text-cyan-400 fill-cyan-400" />
-                  <span>Buy {selectedPackSize}-Pack</span>
+                  <Zap className={`w-4 h-4 ${isOutOfStock ? 'text-slate-400' : 'text-cyan-400 fill-cyan-400'}`} />
+                  <span>{isOutOfStock ? 'Unavailable' : `Buy ${packQuantity > 1 ? `${packQuantity}×${activePackSize}` : `${activePackSize}-Pack`}`}</span>
                 </button>
               </div>
 

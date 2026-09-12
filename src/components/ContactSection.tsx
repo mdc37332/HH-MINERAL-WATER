@@ -40,7 +40,11 @@ export const ContactSection: React.FC = () => {
     const waText = encodeURIComponent(
       `Hello HH MINERAL WATER! My name is ${name}. I am inquiring about "${inquiryType}". Note: ${message}`
     );
-    window.open(`https://wa.me/91${OWNER_WHATSAPP_NUMBER}?text=${waText}`, '_blank');
+    try {
+      window.open(`https://wa.me/91${OWNER_WHATSAPP_NUMBER}?text=${waText}`, '_blank');
+    } catch (e) {
+      console.warn('Could not open WhatsApp tab automatically:', e);
+    }
   };
 
   return (
@@ -72,8 +76,8 @@ export const ContactSection: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Helpline & Orders</span>
-                  <a href={`tel:${adminSettings.helplinePhone}`} className="text-sm font-bold text-white hover:text-cyan-300">
-                    +91 {OWNER_WHATSAPP_NUMBER}
+                  <a href={`tel:${adminSettings?.helplinePhone || OWNER_WHATSAPP_NUMBER}`} className="text-sm font-bold text-white hover:text-cyan-300">
+                    +91 {adminSettings?.helplinePhone || OWNER_WHATSAPP_NUMBER}
                   </a>
                 </div>
               </div>
@@ -90,7 +94,7 @@ export const ContactSection: React.FC = () => {
                     rel="noopener noreferrer"
                     className="text-sm font-bold text-emerald-400 hover:underline"
                   >
-                    +91 {OWNER_WHATSAPP_NUMBER} (Instant Response)
+                    +91 {adminSettings?.ownerWhatsApp || OWNER_WHATSAPP_NUMBER} (Instant Response)
                   </a>
                 </div>
               </div>
@@ -101,7 +105,7 @@ export const ContactSection: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Official Email</span>
-                  <span className="text-sm font-semibold text-slate-200">{adminSettings.contactEmail}</span>
+                  <span className="text-sm font-semibold text-slate-200">{adminSettings?.contactEmail || 'orders@hhmineralwater.com'}</span>
                 </div>
               </div>
 
@@ -112,7 +116,7 @@ export const ContactSection: React.FC = () => {
                 <div>
                   <span className="text-slate-400 block text-[10px] uppercase font-bold">Plant Location</span>
                   <span className="text-xs text-slate-300 leading-relaxed block">
-                    {adminSettings.address}
+                    {adminSettings?.businessAddress || adminSettings?.address || 'Plot No. 42, Water Treatment Plant & Bottling Unit, Industrial Estate'}
                   </span>
                 </div>
               </div>

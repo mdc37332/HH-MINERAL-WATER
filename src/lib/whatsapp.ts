@@ -4,6 +4,136 @@ export const OWNER_WHATSAPP_NUMBER = '8017341130'; // As explicitly instructed
 export const OWNER_WHATSAPP_INTERNATIONAL = '918017341130';
 
 /**
+ * Validates and normalizes phone numbers into international format.
+ * Ensures customer numbers are properly formatted for WhatsApp API delivery.
+ */
+export function normalizePhoneNumber(rawPhone: string): {
+  isValid: boolean;
+  normalized: string; // e.g. "919830012345"
+  display: string; // e.g. "+91 98300 12345"
+  error?: string;
+  isAdminNumber: boolean;
+} {
+  if (!rawPhone || typeof rawPhone !== 'string') {
+    return {
+      isValid: false,
+      normalized: '',
+      display: '',
+      error: 'Phone number is required',
+      isAdminNumber: false,
+    };
+  }
+
+  const digits = rawPhone.replace(/\D/g, '');
+  if (!digits) {
+    return {
+      isValid: false,
+      normalized: '',
+      display: '',
+      error: 'Please enter a valid phone number with digits',
+      isAdminNumber: false,
+    };
+  }
+
+  // Handle standard India numbers
+  let nationalNumber = digits;
+  if (digits.startsWith('91') && digits.length === 12) {
+    nationalNumber = digits.slice(2);
+  } else if (digits.startsWith('0') && digits.length === 11) {
+    nationalNumber = digits.slice(1);
+  }
+
+  const isAdmin = nationalNumber === OWNER_WHATSAPP_NUMBER;
+
+  if (nationalNumber.length !== 10) {
+    // If international non-Indian, allow if 10-15 digits
+    if (digits.length >= 10 && digits.length <= 15) {
+      return {
+        isValid: true,
+        normalized: digits,
+        display: `+${digits}`,
+        isAdminNumber: isAdmin,
+      };
+    }
+    return {
+      isValid: false,
+      normalized: digits,
+      display: rawPhone,
+      error: 'Please enter a valid 10-digit mobile number',
+      isAdminNumber: isAdmin,
+    };
+  }
+
+  const normalized = `91${nationalNumber}`;
+  const display = `+91 ${nationalNumber.slice(0, 5)} ${nationalNumber.slice(5)}`;
+
+  return {
+    isValid: true,
+    normalized,
+    display,
+    isAdminNumber: isAdmin,
+  };
+}
+
+/**
+ * Formats the customer order confirmation WhatsApp message as strictly specified in Requirement 3.
+ */
+export function formatCustomerOrderConfirmationWhatsAppMessage(order: Order): string {
+  // Format items: [PRODUCT NAME] × [QUANTITY]
+  const productsListText = order.items
+    .map(item => `${item.product.name} (${item.product.size}) × ${item.quantity}`)
+    .join('\n');
+
+  // Format order date & time
+  let orderTimeStr = '';
+  try {
+    const rawDate = order.createdAt ? new Date(order.createdAt) : new Date();
+    const d = isNaN(rawDate.getTime()) ? new Date() : rawDate;
+    orderTimeStr = d.toLocaleString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    orderTimeStr = new Date().toLocaleString('en-IN');
+  }
+
+  // Delivery address
+  const fullAddress = `${order.customer.address}, ${
+    order.customer.landmark ? order.customer.landmark + ', ' : ''
+  }${order.customer.city} - ${order.customer.pincode}`;
+
+  return `🧾 *HH MINERAL WATER — ORDER CONFIRMATION*
+
+Dear *${order.customer.name}*,
+
+Your order has been successfully received.
+
+*Order ID:* ${order.id}
+
+*Products:*
+${productsListText}
+
+*Total Amount:* ₹${order.totalAmount}
+
+*Payment:* ${order.paymentMethod}
+
+*Delivery Address:*
+${fullAddress}
+
+*Order Date:* ${orderTimeStr}
+
+Your order is now being processed.
+
+Thank you for choosing *HH MINERAL WATER*.
+_Pure Hydration • High Mineral Balance • Pristine Quality_
+Plant Helpline: +91 8017341130 | Kolkata & Surrounding Region`;
+}
+
+/**
  * Formats the exact order confirmation message specified in the prompt requirement.
  */
 export function formatOrderWhatsAppMessage(order: Order): string {
@@ -41,7 +171,8 @@ export function formatOrderWhatsAppMessage(order: Order): string {
   // Format creation time
   let orderTimeStr = '';
   try {
-    const d = new Date(order.createdAt);
+    const rawDate = order.createdAt ? new Date(order.createdAt) : new Date();
+    const d = isNaN(rawDate.getTime()) ? new Date() : rawDate;
     orderTimeStr = d.toLocaleString('en-IN', {
       day: 'numeric',
       month: 'short',
@@ -51,7 +182,7 @@ export function formatOrderWhatsAppMessage(order: Order): string {
       hour12: true
     });
   } catch {
-    orderTimeStr = new Date().toLocaleString();
+    orderTimeStr = new Date().toLocaleString('en-IN');
   }
 
   // Full address

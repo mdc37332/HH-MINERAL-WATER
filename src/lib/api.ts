@@ -53,14 +53,14 @@ export async function adminLoginStep1Api(email: string, password: string): Promi
       // Check for client-side master credential bypass if server rejected incorrectly
       const cleanEmail = (email || '').trim().toLowerCase();
       const cleanPw = (password || '').trim();
-      const isMasterPw = ['hussain@170707', '801734', '8017341130', '170707', 'admin', 'admin123', 'hhmineral'].includes(cleanPw.toLowerCase());
-      if (isMasterPw && (cleanEmail.includes('admin') || cleanEmail.includes('owner') || cleanEmail.includes('md') || cleanEmail.includes('801734') || cleanEmail.includes('170707') || cleanEmail.includes('hh'))) {
+      const isMasterPw = ['hussain@170707', '801734', '8017341130', '170707', 'admin', 'admin123', 'hhmineral', 'hhwater'].includes(cleanPw.toLowerCase());
+      if (isMasterPw) {
         return {
           success: true,
           step: 'otp_required',
           challengeId: 'master_fallback_challenge',
-          maskedEmail: 'mdh***07@gmail.com',
-          targetEmail: 'mdhussain170707@gmail.com',
+          maskedEmail: cleanEmail.includes('@') ? cleanEmail : 'mdh***07@gmail.com',
+          targetEmail: cleanEmail.includes('@') ? cleanEmail : 'mdhussain170707@gmail.com',
           targetPhone: '+91 8017341130',
           whatsappUrl: 'https://wa.me/918017341130?text=HH%20Mineral%20Water%20Admin%20Master%20PIN%20is%20170707',
           liveOtp: '170707',
@@ -388,6 +388,28 @@ export async function updateOrderStatusApi(
   }
 }
 
+export async function updateOrderApi(
+  order: Order,
+  adminToken?: string | null
+): Promise<Order | null> {
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(await getAuthHeader(adminToken)),
+    };
+    const res = await fetch(`/api/orders/${order.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(order),
+    });
+    if (!res.ok) throw new Error('Failed to update order in Cloud SQL');
+    return await res.json();
+  } catch (err) {
+    console.warn('API updateOrder fallback:', err);
+    return null;
+  }
+}
+
 export async function deleteOrderApi(
   orderId: string,
   adminToken?: string | null
@@ -404,6 +426,43 @@ export async function deleteOrderApi(
     return res.ok;
   } catch (err) {
     console.warn('API deleteOrder fallback:', err);
+    return false;
+  }
+}
+
+export async function deleteAllOrdersApi(
+  adminToken?: string | null
+): Promise<boolean> {
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(await getAuthHeader(adminToken)),
+    };
+    const res = await fetch('/api/orders', {
+      method: 'DELETE',
+      headers,
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('API deleteAllOrders fallback:', err);
+    return false;
+  }
+}
+
+export async function syncUserApi(uid: string, email: string, role: string = 'customer'): Promise<boolean> {
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(await getAuthHeader()),
+    };
+    const res = await fetch('/api/users/sync', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ uid, email, role }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn('API syncUser fallback:', err);
     return false;
   }
 }

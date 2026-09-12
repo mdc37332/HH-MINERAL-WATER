@@ -44,7 +44,9 @@ const MainContent: React.FC = () => {
     recentCreatedOrder,
     setRecentCreatedOrder,
     activeInvoice,
-    setActiveInvoice
+    setActiveInvoice,
+    activeInvoiceAutoPrint,
+    setActiveInvoiceAutoPrint
   } = useStore();
 
   return (
@@ -209,11 +211,17 @@ const MainContent: React.FC = () => {
 
       {/* Official GST Tax Invoice Modal */}
       {activeInvoice && (
-        <GstInvoiceModal
-          invoice={activeInvoice}
-          isOpen={!!activeInvoice}
-          onClose={() => setActiveInvoice(null)}
-        />
+        <div className="gst-invoice-modal-root">
+          <GstInvoiceModal
+            invoice={activeInvoice}
+            isOpen={!!activeInvoice}
+            onClose={() => {
+              setActiveInvoice(null);
+              setActiveInvoiceAutoPrint(false);
+            }}
+            initialAutoPrint={activeInvoiceAutoPrint}
+          />
+        </div>
       )}
 
       {/* Toast Notifications */}

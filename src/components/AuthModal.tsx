@@ -73,7 +73,15 @@ export const AuthModal: React.FC = () => {
       resetForm();
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user') {
-        setErrorMessage(err.message || 'Google sign-in failed. Please try again.');
+        if (err.code === 'auth/popup-blocked') {
+          setErrorMessage('The Google sign-in popup was blocked by your browser. Please allow popups or open the app in a new browser tab.');
+        } else if (err.code === 'auth/unauthorized-domain') {
+          setErrorMessage('This domain is not authorized in Firebase Console -> Authentication -> Settings -> Authorized domains.');
+        } else if (err.code === 'auth/network-request-failed') {
+          setErrorMessage('Network connection error. Please check your internet connection and try again.');
+        } else {
+          setErrorMessage(err.message || 'Google sign-in failed. Please try again.');
+        }
       }
     } finally {
       setLoading(false);
@@ -99,6 +107,10 @@ export const AuthModal: React.FC = () => {
         setErrorMessage('Invalid email or password. Please check your credentials.');
       } else if (err.code === 'auth/too-many-requests') {
         setErrorMessage('Too many failed attempts. Please try again later or reset your password.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setErrorMessage('Email/Password sign-in is not enabled in the Firebase Console. Please use "Continue with Google" or enable Email/Password in Firebase Console -> Authentication -> Sign-in method.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setErrorMessage('Network error. Please check your connection and try again.');
       } else {
         setErrorMessage(err.message || 'Login failed. Please verify your credentials.');
       }
@@ -150,6 +162,10 @@ export const AuthModal: React.FC = () => {
         setErrorMessage('This email is already registered. Please sign in instead.');
       } else if (err.code === 'auth/weak-password') {
         setErrorMessage('Password is too weak. Please use at least 6 characters.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setErrorMessage('Email/Password provider is not enabled in Firebase Console. Please use "Continue with Google" or enable Email/Password in Firebase Console -> Authentication -> Sign-in method.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setErrorMessage('Network connection error. Please try again.');
       } else {
         setErrorMessage(err.message || 'Registration failed. Please try again.');
       }
@@ -176,6 +192,8 @@ export const AuthModal: React.FC = () => {
     } catch (err: any) {
       if (err.code === 'auth/user-not-found') {
         setErrorMessage('No customer account found with this email.');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setErrorMessage('Password reset is not enabled for Email/Password in Firebase Console.');
       } else {
         setErrorMessage(err.message || 'Unable to send reset email. Please try again.');
       }

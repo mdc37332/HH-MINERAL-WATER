@@ -1,39 +1,63 @@
 import { Order, AdminSettings, Invoice, InvoiceItem } from '../types';
+import { DEFAULT_ADMIN_SETTINGS } from '../data/initialProducts';
 import { numberToIndianRupees } from './numberToWords';
+
+/**
+ * Computes Indian financial year e.g. "2026-27"
+ */
+export function getFinancialYear(dateInput?: Date | string): string {
+  const d = dateInput ? new Date(dateInput) : new Date();
+  const validDate = isNaN(d.getTime()) ? new Date() : d;
+  const month = validDate.getMonth(); // 0-indexed: 0=Jan, 3=April
+  const year = validDate.getFullYear();
+  if (month >= 3) {
+    const nextYearShort = String((year + 1) % 100).padStart(2, '0');
+    return `${year}-${nextYearShort}`;
+  } else {
+    const yearShort = String(year % 100).padStart(2, '0');
+    return `${year - 1}-${yearShort}`;
+  }
+}
 
 /**
  * Deterministically generates an official GST Tax Invoice from an Order and AdminSettings.
  */
 export function generateGstInvoice(
   order: Order,
-  settings: AdminSettings,
+  settings?: AdminSettings,
   sequenceNumber?: number | string
 ): Invoice {
-  const invoicePrefix = settings.invoicePrefix || 'HH/2026/';
+  const safeSettings = settings || DEFAULT_ADMIN_SETTINGS;
+  const finYear = getFinancialYear(order.createdAt || new Date());
+  const defaultPrefix = `HH/${finYear}/`;
+  const invoicePrefix = safeSettings.invoicePrefix || defaultPrefix;
   
-  // Format sequential invoice number, e.g. HH/2026/000042
+  // Format sequential invoice number, e.g. HH/2026-27/000042
   let invoiceNumber: string;
-  if (sequenceNumber) {
+  if (order.invoiceNumber) {
+    // Preserve finalized invoice number if already set on order
+    invoiceNumber = order.invoiceNumber;
+  } else if (sequenceNumber) {
     const padded = String(sequenceNumber).padStart(6, '0');
     invoiceNumber = `${invoicePrefix}${padded}`;
-  } else if (order.invoiceNumber) {
-    invoiceNumber = order.invoiceNumber;
   } else {
     // Extract numerical seed from Order ID (e.g. HH-ORD-74921 -> 074921)
     const numericPart = order.id.replace(/\D/g, '').slice(-6).padStart(6, '0');
     invoiceNumber = `${invoicePrefix}${numericPart}`;
   }
 
-  const defaultGstRate = settings.defaultGstRate ?? 18;
-  const isGstInclusive = settings.pricesIncludeGst ?? true;
-  const companyStateCode = settings.stateCode || '19';
-  const companyState = settings.state || 'West Bengal';
+  const defaultGstRate = safeSettings.defaultGstRate ?? 18;
+  const isGstInclusive = safeSettings.pricesIncludeGst ?? true;
+  const companyStateCode = safeSettings.stateCode || '19';
+  const companyState = safeSettings.state || 'West Bengal';
 
-  // Determine Customer State
-  let customerState = companyState;
-  let customerStateCode = companyStateCode;
+  // Determine Customer State and whether transaction is Intra-State or Inter-State
+  const custAny = order.customer as any;
+  const customerState = custAny.state || companyState;
+  const customerStateCode = custAny.stateCode || (customerState === companyState ? companyStateCode : '27');
 
-  const isIntraState = true; // Most local water deliveries are intra-state (CGST + SGST)
+  // Intra-state (CGST + SGST) if customer is in same state, otherwise Inter-state (IGST)
+  const isIntraState = customerStateCode === companyStateCode;
 
   let totalTaxableAmount = 0;
   let totalCgst = 0;
@@ -121,31 +145,32 @@ export function generateGstInvoice(
     orderId: order.id,
     userUid: order.userUid,
     invoiceDate,
+    financialYear: finYear,
     supplyDate: invoiceDate,
     placeOfSupply: `${companyState} (${companyStateCode})`,
     reverseCharge: 'No',
     companyDetails: {
-      legalBusinessName: settings.legalBusinessName || 'HH MINERAL WATER BOTTLING & PACKAGING',
-      tradeName: settings.tradeName || 'HH MINERAL WATER',
-      businessAddress: settings.businessAddress || settings.address || 'HH Mineral Water Plant, Kolkata, West Bengal',
+      legalBusinessName: safeSettings.legalBusinessName || 'HH MINERAL WATER BOTTLING & PACKAGING',
+      tradeName: safeSettings.tradeName || 'HH MINERAL WATER',
+      businessAddress: safeSettings.businessAddress || (safeSettings as any).address || 'HH Mineral Water Plant, Kolkata, West Bengal',
       city: 'Kolkata',
       state: companyState,
       stateCode: companyStateCode,
       pincode: '700001',
-      gstin: settings.gstin || '',
-      pan: settings.panNumber || '',
-      fssaiNumber: settings.fssaiNumber || '12822001000456',
-      cinNumber: settings.cinNumber || '',
-      phone: settings.helplinePhone || settings.ownerWhatsApp || '8017341130',
-      email: settings.contactEmail || 'orders@hhmineralwater.com',
+      gstin: safeSettings.gstin || '',
+      pan: safeSettings.pan || (safeSettings as any).panNumber || '',
+      fssaiNumber: safeSettings.fssaiNumber || '12822001000456',
+      cinNumber: safeSettings.cinNumber || '',
+      phone: safeSettings.helplinePhone || safeSettings.ownerWhatsApp || '8017341130',
+      email: safeSettings.contactEmail || 'orders@hhmineralwater.com',
       bankDetails: {
-        bankName: settings.bankName || 'State Bank of India',
-        accountName: settings.bankAccountName || settings.legalBusinessName || 'HH MINERAL WATER',
-        accountNumber: settings.bankAccountNumber || '389201094821',
-        ifsc: settings.bankIfsc || 'SBIN0001234',
-        upiId: settings.bankUpiId || `${settings.ownerWhatsApp}@upi`
+        bankName: safeSettings.bankName || 'State Bank of India',
+        accountName: safeSettings.accountHolderName || safeSettings.legalBusinessName || 'HH MINERAL WATER',
+        accountNumber: safeSettings.accountNumber || '389201094821',
+        ifsc: safeSettings.ifscCode || 'SBIN0001234',
+        upiId: safeSettings.upiId || `${safeSettings.ownerWhatsApp}@upi`
       },
-      invoiceTerms: settings.invoiceTerms || '1. Goods once sold will not be taken back or exchanged.\n2. Invoices are subject to local jurisdiction.\n3. Storage: Keep in a cool, dry place away from direct sunlight.'
+      invoiceTerms: safeSettings.invoiceTerms || '1. Goods once sold will not be taken back or exchanged.\n2. Invoices are subject to local jurisdiction.\n3. Storage: Keep in a cool, dry place away from direct sunlight.'
     },
     customerDetails: {
       name: order.customer.name,

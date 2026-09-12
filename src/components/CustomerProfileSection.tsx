@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
 import { CustomerAddress } from '../types';
+import { normalizePhoneNumber } from '../lib/whatsapp';
 import { changeCustomerPassword } from '../lib/firebase';
 import {
   User,
@@ -24,6 +25,7 @@ import {
   X,
   Receipt,
   FileText,
+  Printer,
   Clock,
   ArrowRight
 } from 'lucide-react';
@@ -96,6 +98,13 @@ export const CustomerProfileSection: React.FC = () => {
     if (!editName.trim()) {
       showToast('Validation', 'Name cannot be empty.', 'warning');
       return;
+    }
+    if (editPhone.trim()) {
+      const phoneVal = normalizePhoneNumber(editPhone);
+      if (!phoneVal.isValid) {
+        showToast('Invalid Phone', phoneVal.error || 'Please enter a valid 10-digit mobile number.', 'warning');
+        return;
+      }
     }
     setProfileSaving(true);
     try {
@@ -174,6 +183,12 @@ export const CustomerProfileSection: React.FC = () => {
 
     if (!addressRecipientName.trim() || !addressPhone.trim() || !addressStreet.trim() || !addressPincode.trim()) {
       setAddressError('Please fill in all required address fields.');
+      return;
+    }
+
+    const phoneVal = normalizePhoneNumber(addressPhone);
+    if (!phoneVal.isValid) {
+      setAddressError(phoneVal.error || 'Please provide a valid 10-digit mobile number.');
       return;
     }
 
@@ -652,12 +667,24 @@ export const CustomerProfileSection: React.FC = () => {
                     <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
                       <button
                         type="button"
-                        onClick={() => openInvoiceForOrder(order)}
+                        id={`btn-profile-print-invoice-${order.id}`}
+                        onClick={() => openInvoiceForOrder(order, true)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                        title="Print Official GST Tax Invoice"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-white" />
+                        <span>Print</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        id={`btn-profile-view-invoice-${order.id}`}
+                        onClick={() => openInvoiceForOrder(order, false)}
                         className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
                         title="View & Print GST Invoice"
                       >
                         <Receipt className="w-3.5 h-3.5 text-cyan-400" />
-                        <span>GST Invoice</span>
+                        <span>View</span>
                       </button>
 
                       <button

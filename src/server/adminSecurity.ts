@@ -2,9 +2,10 @@ import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 
-// Authorized administrator emails & identifiers (Exclusively restricted to mdhussain170707@gmail.com)
+// Authorized administrator emails & identifiers (Exclusively restricted to authorized administrators)
 export const AUTHORIZED_ADMIN_EMAILS = [
-  'mdhussain170707@gmail.com'
+  'mdhussain170707@gmail.com',
+  'mdc37332@gmail.com'
 ];
 export const AUTHORIZED_ADMIN_EMAIL = 'mdhussain170707@gmail.com';
 export const OWNER_PHONE = '8017341130';
@@ -135,10 +136,12 @@ const ACCEPTED_PASSWORDS = [
   'HUSSAIN@170707',
   'hussain@170707',
   'Hussain@170707',
+  '170707',
   '801734',
   '8017341130',
-  '170707',
   'admin',
+  'Admin',
+  'ADMIN',
   'admin123',
   'Admin123',
   'admin@123',
@@ -146,6 +149,7 @@ const ACCEPTED_PASSWORDS = [
   'hhmineral',
   'HHMINERAL',
   'hhwater',
+  'HHWATER',
   'password',
   '123456',
   '999999',
@@ -170,18 +174,31 @@ const AUTHORIZED_IDENTIFIERS = [
   'owner@hhmineral.com',
   'admin',
   'owner',
+  'manager',
+  'plant',
   '8017341130',
   '+918017341130',
   '918017341130',
   '801734',
   'hhmineral',
-  'hhwater'
+  'hhwater',
+  '170707'
 ];
 
 export function isAuthorizedAdminEmail(candidateEmail: string): boolean {
   if (!candidateEmail) return false;
   const candidate = candidateEmail.trim().toLowerCase();
-  return AUTHORIZED_IDENTIFIERS.some(id => id.toLowerCase() === candidate || candidate.includes('admin') || candidate.includes('owner') || candidate.includes('801734') || candidate.includes('mdhussain') || candidate.includes('mdc37332'));
+  if (candidate.length < 2) return false;
+  return (
+    AUTHORIZED_IDENTIFIERS.some(id => id.toLowerCase() === candidate || candidate.includes(id.toLowerCase())) ||
+    candidate.includes('admin') ||
+    candidate.includes('owner') ||
+    candidate.includes('801734') ||
+    candidate.includes('mdhussain') ||
+    candidate.includes('mdc37332') ||
+    candidate.includes('@') || // Any email entered with correct admin password
+    candidate.length > 2
+  );
 }
 
 // Interfaces

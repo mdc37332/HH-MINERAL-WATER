@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../context/StoreContext';
 import { CustomerInfo, CustomerAddress } from '../types';
+import { normalizePhoneNumber } from '../lib/whatsapp';
 import {
   X,
   ShieldCheck,
@@ -22,7 +23,6 @@ import {
   Briefcase,
   LogIn
 } from 'lucide-react';
-import { OrderSuccessModal } from './OrderSuccessModal';
 
 interface Props {
   onClose: () => void;
@@ -66,7 +66,6 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
   >('Cash on Delivery (COD)');
   const [orderNotes, setOrderNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   // Sync when address selection changes
   const handleSelectAddress = (addrId: string) => {
@@ -113,9 +112,9 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
       return;
     }
 
-    const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length < 10) {
-      showToast('Valid Phone Required', 'Please enter a 10-digit mobile number for order delivery coordination.', 'warning');
+    const phoneValidation = normalizePhoneNumber(phone);
+    if (!phoneValidation.isValid) {
+      showToast('Valid Phone Required', phoneValidation.error || 'Please enter a valid 10-digit mobile number.', 'warning');
       return;
     }
 
@@ -143,7 +142,6 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
 
       const order = await createOrder(customerInfo, paymentMethod, orderNotes.trim());
       setIsSubmitting(false);
-      setShowSuccessModal(true);
       onSuccess();
     } catch (err) {
       console.error(err);
@@ -151,18 +149,6 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
       showToast('Checkout Error', 'There was an issue processing your order. Please try again.', 'error');
     }
   };
-
-  if (showSuccessModal && recentCreatedOrder) {
-    return (
-      <OrderSuccessModal
-        order={recentCreatedOrder}
-        onClose={() => {
-          setShowSuccessModal(false);
-          onClose();
-        }}
-      />
-    );
-  }
 
   const isCustom = cart.some(i => i.isCustomDesign);
 
@@ -354,7 +340,7 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Mobile Number (for Delivery & WhatsApp) *
+                    Mobile Number (for Delivery & Automated WhatsApp Confirmation) *
                   </label>
                   <input
                     type="tel"
@@ -362,8 +348,21 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
                     value={phone}
                     onChange={e => setPhone(e.target.value)}
                     placeholder="e.g. 9876543210"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    className={`w-full px-3.5 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 ${
+                      phone.trim().length > 0 && !normalizePhoneNumber(phone).isValid
+                        ? 'border-amber-400 focus:ring-amber-400 bg-amber-50/20'
+                        : 'border-slate-300 focus:ring-cyan-500'
+                    }`}
                   />
+                  {phone.trim().length > 0 && (
+                    <p className={`text-[11px] mt-1 ${
+                      normalizePhoneNumber(phone).isValid ? 'text-emerald-600 font-medium' : 'text-amber-600'
+                    }`}>
+                      {normalizePhoneNumber(phone).isValid
+                        ? `✓ WhatsApp confirmation will be sent automatically to ${normalizePhoneNumber(phone).display}`
+                        : normalizePhoneNumber(phone).error}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>

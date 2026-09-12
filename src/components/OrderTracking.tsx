@@ -24,7 +24,9 @@ import {
   Copy,
   Check,
   Receipt,
-  FileText
+  FileText,
+  Video,
+  Play
 } from 'lucide-react';
 import { getWhatsAppDirectUrl, OWNER_WHATSAPP_NUMBER } from '../lib/whatsapp';
 
@@ -46,6 +48,7 @@ export const OrderTracking: React.FC = () => {
     currentUser ? 'my_orders' : 'search'
   );
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
+  const [previewVideo, setPreviewVideo] = useState<{ url: string; name: string } | null>(null);
   const [copiedId, setCopiedId] = useState(false);
 
   const statusPipeline: OrderStatus[] = [
@@ -100,7 +103,9 @@ export const OrderTracking: React.FC = () => {
   };
 
   const handlePrintReceipt = () => {
-    window.print();
+    if (selectedOrder) {
+      openInvoiceForOrder(selectedOrder);
+    }
   };
 
   const handleCopyOrderId = (id: string) => {
@@ -304,7 +309,20 @@ export const OrderTracking: React.FC = () => {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <button
-                    onClick={() => openInvoiceForOrder(selectedOrder)}
+                    type="button"
+                    id={`btn-track-print-invoice-${selectedOrder.id}`}
+                    onClick={() => openInvoiceForOrder(selectedOrder, true)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+                    title="Print Official GST Tax Invoice"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-white" />
+                    <span>Print Invoice</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    id={`btn-track-view-invoice-${selectedOrder.id}`}
+                    onClick={() => openInvoiceForOrder(selectedOrder, false)}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   >
                     <Receipt className="w-3.5 h-3.5 text-cyan-400" />
@@ -444,61 +462,100 @@ export const OrderTracking: React.FC = () => {
                 </div>
               </div>
 
-              {/* Uploaded Original Images Section (If custom) */}
-              {selectedOrder.hasOriginalImage && (
+              {/* Uploaded Original Images & Video Files Section (If custom) */}
+              {(selectedOrder.hasOriginalImage || selectedOrder.hasUploadedVideo || selectedOrder.items.some(i => i.customDesignDetails?.uploadedImages && i.customDesignDetails.uploadedImages.length > 0)) && (
                 <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 space-y-3">
                   <div className="flex items-center justify-between">
                     <h5 className="text-xs font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
-                      <ImageIcon className="w-4 h-4" />
-                      Original Uploaded Customer Artwork Files
+                      <Sparkles className="w-4 h-4 text-cyan-400" />
+                      Original Uploaded Customer Artwork & Video Files
                     </h5>
-                    <span className="text-[10px] text-slate-400">High-Resolution Preserved for Factory Offset Printing</span>
+                    <span className="text-[10px] text-slate-400">High-Resolution Preserved for Factory Production</span>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {selectedOrder.items.flatMap(item =>
-                      (item.customDesignDetails?.uploadedImages || []).map((img, i) => (
-                        <div
-                          key={i}
-                          className="bg-slate-800 rounded-xl p-2.5 border border-slate-700 flex flex-col items-center text-center group"
-                        >
+                      (item.customDesignDetails?.uploadedImages || []).map((media, i) => {
+                        const isVideo = media.mediaType === 'video' || media.type?.startsWith('video/');
+                        return (
                           <div
-                            onClick={() => setPreviewImage({ url: img.url, name: img.name })}
-                            className="w-full h-24 rounded-lg bg-black/40 p-1 flex items-center justify-center overflow-hidden mb-2 cursor-pointer hover:opacity-90 relative"
+                            key={i}
+                            className={`rounded-xl p-2.5 border flex flex-col items-center text-center group ${
+                              isVideo ? 'bg-purple-950/40 border-purple-800/80' : 'bg-slate-800 border-slate-700'
+                            }`}
                           >
-                            <img
-                              src={img.url}
-                              alt={img.name}
-                              className="max-h-full max-w-full object-contain"
-                            />
-                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                              <Eye className="w-4 h-4 text-white" />
+                            <div
+                              onClick={() => {
+                                if (isVideo) {
+                                  setPreviewVideo({ url: media.url, name: media.name });
+                                } else {
+                                  setPreviewImage({ url: media.url, name: media.name });
+                                }
+                              }}
+                              className="w-full h-24 rounded-lg bg-black/40 p-1 flex items-center justify-center overflow-hidden mb-2 cursor-pointer hover:opacity-90 relative"
+                            >
+                              {isVideo ? (
+                                media.thumbnailUrl ? (
+                                  <div className="relative w-full h-full">
+                                    <img
+                                      src={media.thumbnailUrl}
+                                      alt={media.name}
+                                      className="w-full h-full object-cover rounded"
+                                    />
+                                    <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-all">
+                                      <Play className="w-6 h-6 text-white fill-white" />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center text-purple-300">
+                                    <Video className="w-8 h-8" />
+                                    <span className="text-[9px] uppercase font-bold tracking-wider mt-1">Play Video</span>
+                                  </div>
+                                )
+                              ) : (
+                                <img
+                                  src={media.url}
+                                  alt={media.name}
+                                  className="max-h-full max-w-full object-contain"
+                                />
+                              )}
+                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity pointer-events-none">
+                                {isVideo ? <Play className="w-5 h-5 text-white fill-white" /> : <Eye className="w-4 h-4 text-white" />}
+                              </div>
+                            </div>
+                            <span className="text-[11px] font-semibold text-slate-200 truncate w-full">
+                              {media.name}
+                            </span>
+                            <div className="flex items-center gap-2 mt-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isVideo) {
+                                    setPreviewVideo({ url: media.url, name: media.name });
+                                  } else {
+                                    setPreviewImage({ url: media.url, name: media.name });
+                                  }
+                                }}
+                                className={`text-[10px] font-bold flex items-center gap-0.5 cursor-pointer ${
+                                  isVideo ? 'text-purple-300 hover:text-white' : 'text-slate-300 hover:text-white'
+                                }`}
+                              >
+                                {isVideo ? <Play className="w-3 h-3 fill-current" /> : <Eye className="w-3 h-3" />}
+                                <span>{isVideo ? 'Play' : 'View'}</span>
+                              </button>
+                              <span className="text-slate-600">•</span>
+                              <a
+                                href={media.url}
+                                download={media.name || (isVideo ? 'bottle-custom-video.mp4' : 'hh-custom-logo.png')}
+                                className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-0.5"
+                              >
+                                <FileDown className="w-3 h-3" />
+                                <span>Save</span>
+                              </a>
                             </div>
                           </div>
-                          <span className="text-[11px] font-semibold text-slate-200 truncate w-full">
-                            {img.name}
-                          </span>
-                          <div className="flex items-center gap-2 mt-2">
-                            <button
-                              type="button"
-                              onClick={() => setPreviewImage({ url: img.url, name: img.name })}
-                              className="text-[10px] font-bold text-slate-300 hover:text-white flex items-center gap-0.5 cursor-pointer"
-                            >
-                              <Eye className="w-3 h-3" />
-                              <span>View</span>
-                            </button>
-                            <span className="text-slate-600">•</span>
-                            <a
-                              href={img.url}
-                              download={img.name || 'hh-custom-logo.png'}
-                              className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-0.5"
-                            >
-                              <FileDown className="w-3 h-3" />
-                              <span>Save</span>
-                            </a>
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -565,7 +622,7 @@ export const OrderTracking: React.FC = () => {
               <span className="text-xs font-bold truncate max-w-md">{previewImage.name}</span>
               <button
                 onClick={() => setPreviewImage(null)}
-                className="p-1 text-slate-400 hover:text-white rounded-full"
+                className="p-1 text-slate-400 hover:text-white rounded-full cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -593,6 +650,52 @@ export const OrderTracking: React.FC = () => {
                 className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs px-5 py-2.5 rounded-xl cursor-pointer"
               >
                 Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal for Original Video Preview */}
+      {previewVideo && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="relative max-w-3xl w-full bg-slate-900 rounded-3xl overflow-hidden border border-slate-800 shadow-2xl p-6 text-center space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between text-white border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 truncate max-w-md">
+                <Video className="w-4 h-4 text-purple-400 shrink-0" />
+                <span className="text-xs font-bold truncate">{previewVideo.name}</span>
+              </div>
+              <button
+                onClick={() => setPreviewVideo(null)}
+                className="p-1 text-slate-400 hover:text-white rounded-full cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] overflow-hidden flex items-center justify-center bg-black rounded-2xl p-2">
+              <video
+                src={previewVideo.url}
+                controls
+                autoPlay
+                className="max-h-[60vh] max-w-full object-contain rounded-lg shadow-lg"
+              />
+            </div>
+
+            <div className="flex items-center justify-center gap-4 pt-2">
+              <a
+                href={previewVideo.url}
+                download={previewVideo.name || 'custom-bottle-video.mp4'}
+                className="bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md flex items-center gap-2"
+              >
+                <FileDown className="w-4 h-4" />
+                <span>Download Video Clip</span>
+              </a>
+              <button
+                onClick={() => setPreviewVideo(null)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs px-5 py-2.5 rounded-xl cursor-pointer"
+              >
+                Close Video Player
               </button>
             </div>
           </div>

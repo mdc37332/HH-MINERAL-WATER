@@ -25,6 +25,9 @@ export const products = pgTable('products', {
   category: text('category').notNull(),
   badge: text('badge'),
   casePackSize: integer('case_pack_size').default(24).notNull(),
+  packOptions: jsonb('pack_options'),
+  videoUrl: text('video_url'),
+  videoTitle: text('video_title'),
   customDesignPrice: integer('custom_design_price'),
   features: jsonb('features').notNull(),
   mineralInfo: jsonb('mineral_info').notNull(),
@@ -76,10 +79,12 @@ export const orders = pgTable('orders', {
   orderNotes: text('order_notes'),
   isCustomOrder: boolean('is_custom_order').default(false).notNull(),
   hasOriginalImage: boolean('has_original_image').default(false).notNull(),
+  hasUploadedVideo: boolean('has_uploaded_video').default(false).notNull(),
   status: text('status').default('New').notNull(),
   statusHistory: jsonb('status_history').notNull(),
   whatsAppNotification: jsonb('whatsapp_notification').notNull(),
   invoiceNumber: text('invoice_number'),
+  invoiceId: text('invoice_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 

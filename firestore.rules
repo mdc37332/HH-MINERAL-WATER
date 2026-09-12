@@ -2,11 +2,23 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
+    // --- Global Helper Functions ---
     function isValidId(id) {
-      return id is string && id.size() <= 128;
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.:]+$');
     }
     
+    function isValidInvoiceId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-\\.:/]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -15,50 +27,100 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Default deny
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'mdhussain170707@gmail.com' ||
+        request.auth.token.email == 'mdc37332@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidProduct(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.size is string && data.size.size() <= 50 &&
+             data.price is number && data.price >= 0;
+    }
+
+    function isValidOrder(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.totalAmount is number && data.totalAmount >= 0 &&
+             data.status is string && data.status.size() <= 50 &&
+             data.customer is map &&
+             data.customer.name is string && data.customer.name.size() <= 200 &&
+             data.customer.phone is string && data.customer.phone.size() <= 50 &&
+             data.items is list && data.items.size() <= 150;
+    }
+
+    function isValidInvoice(data) {
+      return data.id is string && isValidInvoiceId(data.id) &&
+             data.orderId is string && isValidInvoiceId(data.orderId) &&
+             data.grandTotal is number && data.grandTotal >= 0;
+    }
+
+    function isValidProductAuditLog(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.productId is string && data.productId.size() <= 128 &&
+             data.changedField is string && data.changedField.size() <= 100;
+    }
+
+    function isValidStoreSettings(data) {
+      return (!('ownerWhatsApp' in data) || (data.ownerWhatsApp is string && data.ownerWhatsApp.size() <= 50)) &&
+             (!('freeDeliveryMinAmount' in data) || data.freeDeliveryMinAmount is number);
+    }
+
+    // Default deny all undefined paths
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Products collection: Publicly readable by all customer & admin devices; writeable by app/admin
+    // Products collection: Publicly readable; strictly validated write
     match /products/{productId} {
       allow read: if true;
-      allow write: if true;
+      allow create, update: if isValidId(productId) && isValidProduct(incoming());
+      allow delete: if isValidId(productId);
     }
 
-    // Orders collection: Creatable by customers & guests, readable for order tracking and admin
+    // Orders collection: Publicly readable for tracking & live catalog; strictly validated create and update
     match /orders/{orderId} {
       allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      allow create: if (isValidId(orderId) || isValidInvoiceId(orderId)) && isValidOrder(incoming());
+      allow update: if (isValidId(orderId) || isValidInvoiceId(orderId)) && (
+        isAdmin() || (isValidOrder(incoming()) && existing().status != 'Cancelled')
+      );
+      allow delete: if isValidId(orderId) || isValidInvoiceId(orderId) || isAdmin();
     }
 
     // Product Audit Logs: Full trail of product changes
     match /product_audit_logs/{logId} {
       allow read: if true;
-      allow write: if true;
+      allow create: if isValidId(logId) && isValidProductAuditLog(incoming());
+      allow update, delete: if isValidId(logId) || isAdmin();
     }
 
-    // Invoices collection
+    // Invoices collection: Order GST invoices
     match /invoices/{invoiceId} {
       allow read: if true;
-      allow write: if true;
+      allow create, update: if (isValidId(invoiceId) || isValidInvoiceId(invoiceId)) && isValidInvoice(incoming());
+      allow delete: if isValidId(invoiceId) || isValidInvoiceId(invoiceId) || isAdmin();
     }
 
     // Store Settings
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if true;
+      allow write: if isValidId(settingId) && isValidStoreSettings(incoming());
     }
 
-    // User profiles & addresses
+    // User profiles & addresses: Strictly secured to authenticated owner or admin
     match /users/{userId} {
-      allow read, write: if true;
+      allow read, write: if isValidId(userId) && (isOwner(userId) || isAdmin());
     }
 
     // Connection test document
     match /test/{docId} {
-      allow read, write: if true;
+      allow read, write: if isValidId(docId);
     }
   }
 }

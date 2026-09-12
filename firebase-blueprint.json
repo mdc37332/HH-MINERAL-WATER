@@ -75,9 +75,25 @@
         "email": { "type": "string", "maxLength": 200 },
         "displayName": { "type": "string", "maxLength": 200 },
         "phone": { "type": "string", "maxLength": 50 },
-        "role": { "type": "string", "maxLength": 50 }
+        "role": { "type": "string", "maxLength": 50 },
+        "createdAt": { "type": "string", "maxLength": 100 },
+        "addresses": { "type": "array" }
       },
       "required": ["uid"]
+    },
+    "Invoice": {
+      "title": "Invoice",
+      "description": "GST Tax Invoices for bottle orders",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "invoiceNumber": { "type": "string", "maxLength": 128 },
+        "orderId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 200 },
+        "grandTotal": { "type": "number" },
+        "status": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "invoiceNumber", "orderId", "grandTotal"]
     },
     "Settings": {
       "title": "Settings",
@@ -89,7 +105,12 @@
         "contactEmail": { "type": "string", "maxLength": 200 },
         "address": { "type": "string", "maxLength": 500 },
         "freeDeliveryMinAmount": { "type": "number" },
-        "defaultDeliveryCharge": { "type": "number" }
+        "defaultDeliveryCharge": { "type": "number" },
+        "acceptingOrders": { "type": "boolean" },
+        "orderPrefix": { "type": "string", "maxLength": 50 },
+        "businessName": { "type": "string", "maxLength": 200 },
+        "gstin": { "type": "string", "maxLength": 50 },
+        "fssaiNumber": { "type": "string", "maxLength": 50 }
       }
     }
   },
@@ -109,6 +130,10 @@
     "/users/{userId}": {
       "schema": "User",
       "description": "Customer profiles and addresses"
+    },
+    "/invoices/{invoiceId}": {
+      "schema": "Invoice",
+      "description": "GST Tax Invoices for orders"
     },
     "/settings/{settingId}": {
       "schema": "Settings",

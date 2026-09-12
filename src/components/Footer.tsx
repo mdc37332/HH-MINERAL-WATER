@@ -15,13 +15,13 @@ import {
 import { getCustomerSupportWhatsAppUrl, OWNER_WHATSAPP_NUMBER } from '../lib/whatsapp';
 
 export const Footer: React.FC = () => {
-  const { setCurrentSection, adminSettings } = useStore();
+  const { setCurrentSection } = useStore();
 
   return (
     <footer className="bg-slate-950 text-white border-t border-slate-800/80 pt-16 pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
         {/* Main Footer Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Brand Col */}
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center gap-3">
@@ -116,31 +116,6 @@ export const Footer: React.FC = () => {
                 >
                   HH Owner App
                 </button>
-              </li>
-            </ul>
-          </div>
-
-          {/* Bottle Sizes */}
-          <div className="space-y-3 text-xs">
-            <h4 className="font-heading font-bold text-white uppercase tracking-wider text-xs">
-              Bottle Variants
-            </h4>
-            <ul className="space-y-2 text-slate-400">
-              <li className="flex justify-between max-w-[140px]">
-                <span>250ml Pocket</span>
-                <span className="font-bold text-white">₹5</span>
-              </li>
-              <li className="flex justify-between max-w-[140px]">
-                <span>500ml Daily</span>
-                <span className="font-bold text-white">₹8</span>
-              </li>
-              <li className="flex justify-between max-w-[140px]">
-                <span>1L Spring</span>
-                <span className="font-bold text-white">₹10</span>
-              </li>
-              <li className="flex justify-between max-w-[140px]">
-                <span>2L Family</span>
-                <span className="font-bold text-white">₹25</span>
               </li>
             </ul>
           </div>

@@ -3,13 +3,17 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import {
   getAllProducts,
+  getProductById,
   upsertProduct,
   deleteProductById,
   deleteAllProducts,
   getAllOrders,
+  getOrderById,
   createOrder,
   updateOrderStatusInDb,
+  updateOrderInDb,
   deleteOrderById,
+  deleteAllOrdersInDb,
   getStoreSettings,
   saveStoreSettings,
   getOrCreateUser,
@@ -51,10 +55,12 @@ async function startServer() {
   async function ensureSeedData() {
     try {
       const existingProducts = await getAllProducts();
-      if (existingProducts.length === 0 && INITIAL_PRODUCTS.length > 0) {
-        console.log('Seeding initial products into Cloud SQL...');
-        for (const p of INITIAL_PRODUCTS) {
-          await upsertProduct(p);
+      if (!existingProducts || existingProducts.length === 0) {
+        if (INITIAL_PRODUCTS.length > 0) {
+          console.log('Seeding initial products into database...');
+          for (const p of INITIAL_PRODUCTS) {
+            await upsertProduct(p);
+          }
         }
       }
       const existingSettings = await getStoreSettings();
@@ -62,7 +68,7 @@ async function startServer() {
         await saveStoreSettings(DEFAULT_ADMIN_SETTINGS as AdminSettings);
       }
     } catch (err) {
-      console.warn('Seed data check deferred or pool client connecting:', err);
+      console.warn('Seed data check notice:', err);
     }
   }
 
@@ -103,10 +109,17 @@ async function startServer() {
   app.get('/api/products', async (req, res) => {
     try {
       let productsList = await getAllProducts();
-      res.json(productsList);
+      if (!productsList || productsList.length === 0) {
+        if (INITIAL_PRODUCTS.length > 0) {
+          for (const p of INITIAL_PRODUCTS) {
+            await upsertProduct(p);
+          }
+          productsList = await getAllProducts();
+        }
+      }
+      res.json(productsList && productsList.length > 0 ? productsList : INITIAL_PRODUCTS);
     } catch (error: any) {
       console.error('Failed to get products from Cloud SQL:', error);
-      // Fallback to in-memory initial products to ensure flawless UI uptime
       res.json(INITIAL_PRODUCTS);
     }
   });
@@ -254,6 +267,19 @@ async function startServer() {
     }
   });
 
+  app.get('/api/products/:id', async (req, res) => {
+    try {
+      const product = await getProductById(req.params.id);
+      if (!product) {
+        return res.status(404).json({ error: 'Product not found' });
+      }
+      res.json(product);
+    } catch (error: any) {
+      console.error('Failed to fetch product:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch product' });
+    }
+  });
+
   // Orders API
   app.get('/api/orders', async (req, res) => {
     try {
@@ -265,13 +291,29 @@ async function startServer() {
     }
   });
 
+  app.get('/api/orders/:id', async (req, res) => {
+    try {
+      const order = await getOrderById(req.params.id);
+      if (!order) {
+        return res.status(404).json({ error: 'Order not found' });
+      }
+      res.json(order);
+    } catch (error: any) {
+      console.error('Failed to fetch order:', error);
+      res.status(500).json({ error: error.message || 'Failed to fetch order' });
+    }
+  });
+
   app.post('/api/orders', optionalAuth, async (req: AuthRequest, res) => {
     try {
       const order: Order = req.body;
       if (!order.id || !order.customer || !order.items) {
         return res.status(400).json({ error: 'Invalid order structure' });
       }
-      const userUid = req.user?.uid;
+      if (!order.createdAt) {
+        order.createdAt = new Date().toISOString();
+      }
+      const userUid = req.user?.uid || order.userUid;
       const created = await createOrder(order, userUid);
 
       // Automatically generate professional GST Tax Invoice immediately after successful order creation
@@ -312,6 +354,21 @@ async function startServer() {
     }
   });
 
+  app.put('/api/orders/:id', requireAdminAuth, async (req, res) => {
+    try {
+      const order: Order = req.body;
+      if (!order || !order.id) {
+        return res.status(400).json({ error: 'Valid order object is required' });
+      }
+      const updated = await updateOrderInDb(order);
+      logAuditEvent('ADMIN_ORDER_UPDATED', `Full order ${order.id} updated (Total: ₹${order.totalAmount})`);
+      res.json(updated);
+    } catch (error: any) {
+      console.error('Failed to update full order in Cloud SQL:', error);
+      res.status(500).json({ error: error.message || 'Failed to update order' });
+    }
+  });
+
   app.delete('/api/orders/:id', requireAdminAuth, async (req, res) => {
     try {
       const { id } = req.params;
@@ -321,6 +378,34 @@ async function startServer() {
     } catch (error: any) {
       console.error('Failed to delete order:', error);
       res.status(500).json({ error: error.message || 'Failed to delete order' });
+    }
+  });
+
+  app.delete('/api/orders', requireAdminAuth, async (req, res) => {
+    try {
+      const deleted = await deleteAllOrdersInDb();
+      logAuditEvent('ADMIN_ALL_ORDERS_DELETED', 'All orders cleared from database by Administrator');
+      res.json({ success: true, deleted, message: 'All orders deleted from database successfully.' });
+    } catch (error: any) {
+      console.error('Failed to clear orders in Cloud SQL:', error);
+      res.status(500).json({ error: error.message || 'Failed to clear all orders' });
+    }
+  });
+
+  // --- USER SYNCHRONIZATION (Firebase Auth -> Cloud SQL) ---
+  app.post('/api/users/sync', optionalAuth, async (req: AuthRequest, res) => {
+    try {
+      const { uid, email, role } = req.body;
+      const targetUid = uid || req.user?.uid;
+      const targetEmail = email || req.user?.email || 'customer@hhmineralwater.com';
+      if (!targetUid) {
+        return res.status(400).json({ error: 'User UID is required' });
+      }
+      const syncedUser = await getOrCreateUser(targetUid, targetEmail, role || 'customer');
+      res.json({ success: true, user: syncedUser });
+    } catch (error: any) {
+      console.error('Failed to sync user to Cloud SQL:', error);
+      res.status(500).json({ error: error.message || 'User sync failed' });
     }
   });
 

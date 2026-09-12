@@ -1,23 +1,36 @@
 import React from 'react';
 import { Order, AdminSettings } from '../../types';
+import { DEFAULT_ADMIN_SETTINGS } from '../../data/initialProducts';
 import { Printer, CheckCircle2, Package, Truck, Phone, MapPin, Building2 } from 'lucide-react';
 
 interface DeliveryChallanModalProps {
   order: Order;
-  adminSettings: AdminSettings;
+  adminSettings?: AdminSettings;
+  settings?: AdminSettings;
   onClose: () => void;
 }
 
-export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({ order, adminSettings, onClose }) => {
+export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
+  order,
+  adminSettings: propAdminSettings,
+  settings,
+  onClose
+}) => {
   const handlePrint = () => {
     window.print();
   };
 
-  const totalBottles = order.items.reduce((acc, item) => acc + item.quantity, 0);
+  const currentSettings = propAdminSettings || settings || DEFAULT_ADMIN_SETTINGS || ({} as Partial<AdminSettings>);
+  const totalBottles = (order.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0);
+
+  const consignorName = currentSettings.tradeName || currentSettings.legalBusinessName || 'HH MINERAL WATER';
+  const consignorAddress = currentSettings.businessAddress || 'Plot No. 42, Water Treatment Plant & Bottling Unit, Industrial Estate';
+  const consignorGstin = currentSettings.gstin || '19AAACH7890C1Z5';
+  const consignorPhone = currentSettings.ownerWhatsApp || currentSettings.helplinePhone || '8017341130';
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl border border-slate-200 space-y-6 animate-in zoom-in-95">
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
+      <div className="bg-white rounded-3xl max-w-2xl w-full p-8 shadow-2xl border border-slate-200 space-y-6 animate-in zoom-in-95 print:shadow-none print:border-none print:p-0 print:max-w-none">
         <div className="flex items-center justify-between pb-4 border-b border-slate-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-cyan-900 text-cyan-300 flex items-center justify-center font-black text-sm">
@@ -32,7 +45,7 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({ orde
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer"
+            className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer print:hidden"
           >
             Close
           </button>
@@ -54,18 +67,18 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({ orde
           <div className="grid grid-cols-2 gap-4 py-2 border-b border-slate-200">
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase">CONSIGNOR (PLANT)</span>
-              <p className="font-bold text-slate-900">{adminSettings.tradeName || 'HH MINERAL WATER'}</p>
-              <p className="text-slate-600">{adminSettings.businessAddress}</p>
-              <p className="text-slate-600 font-mono">GSTIN: {adminSettings.gstin}</p>
-              <p className="text-slate-600 font-mono">Phone: {adminSettings.ownerWhatsApp}</p>
+              <p className="font-bold text-slate-900">{consignorName}</p>
+              <p className="text-slate-600">{consignorAddress}</p>
+              <p className="text-slate-600 font-mono">GSTIN: {consignorGstin}</p>
+              <p className="text-slate-600 font-mono">Phone: {consignorPhone}</p>
             </div>
 
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase">CONSIGNEE (DELIVER TO)</span>
-              <p className="font-bold text-slate-900">{order.customer.name}</p>
-              <p className="text-slate-600">{order.customer.address}</p>
-              <p className="text-slate-600 font-mono">Pincode: {order.customer.pincode}</p>
-              <p className="text-slate-600 font-mono">Phone: {order.customer.phone}</p>
+              <p className="font-bold text-slate-900">{order.customer?.name || 'Customer'}</p>
+              <p className="text-slate-600">{order.customer?.address || 'Address not specified'}</p>
+              <p className="text-slate-600 font-mono">Pincode: {order.customer?.pincode || '-'}</p>
+              <p className="text-slate-600 font-mono">Phone: {order.customer?.phone || '-'}</p>
             </div>
           </div>
 
@@ -129,10 +142,10 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({ orde
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-3 pt-2">
+        <div className="flex items-center justify-end gap-3 pt-2 print:hidden">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold"
+            className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold cursor-pointer"
           >
             Close
           </button>

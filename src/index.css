@@ -47,25 +47,134 @@
 
 /* Print Stylesheet for Official Indian GST Invoices */
 @media print {
-  body {
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  html, body {
     background: #ffffff !important;
     color: #000000 !important;
-    font-size: 11pt !important;
+    font-size: 10pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
   }
-  header, footer, nav, .print\:hidden {
+
+  /* Hide non-printable UI chrome */
+  header, footer, nav, aside,
+  #toast-container, .toast-container,
+  .print\:hidden, [data-no-print] {
     display: none !important;
   }
+
+  /* When printing an invoice, ensure main content is hidden so only the invoice renders */
+  body.printing-gst-invoice main,
+  body:has(.gst-invoice-modal-root) main {
+    display: none !important;
+  }
+
+  /* Ensure root layout containers remain visible and unconstrained */
+  #root,
+  #root > div {
+    display: block !important;
+    position: static !important;
+    overflow: visible !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  /* Hide other children inside the main container when GST invoice modal is active */
+  body.printing-gst-invoice #root > div > *:not(.gst-invoice-modal-root),
+  body:has(.gst-invoice-modal-root) #root > div > *:not(.gst-invoice-modal-root) {
+    display: none !important;
+  }
+
+  /* Unconstrain modal overlay so it prints seamlessly on A4 paper */
+  .gst-invoice-modal-root {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  .gst-invoice-modal-backdrop,
+  div[class*="gst-invoice-modal-backdrop"] {
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    max-height: none !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    inset: auto !important;
+  }
+
+  .gst-invoice-modal-card,
+  div[class*="gst-invoice-modal-card"] {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+    background: #ffffff !important;
+  }
+
   #printable-gst-invoice {
     display: block !important;
     width: 100% !important;
+    max-width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
     box-shadow: none !important;
     border: none !important;
+    overflow: visible !important;
+    max-height: none !important;
   }
+
+  /* Page break rules for clean A4 printing */
+  .print-avoid-break,
+  tr,
+  .avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  table {
+    page-break-inside: auto;
+    width: 100% !important;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
   @page {
     size: A4 portrait;
-    margin: 12mm 15mm;
+    margin: 8mm 12mm;
   }
 }
 

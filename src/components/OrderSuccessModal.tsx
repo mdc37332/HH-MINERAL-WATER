@@ -122,20 +122,60 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
             <div className="flex flex-wrap gap-2 pt-1">
               <button
                 type="button"
-                onClick={handleViewInvoice}
+                id="btn-success-print-invoice"
+                onClick={async () => {
+                  onClose();
+                  await openInvoiceForOrder(order, true);
+                }}
                 className="flex-1 inline-flex items-center justify-center gap-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs py-2 px-3 rounded-xl shadow-xs transition-colors cursor-pointer"
               >
-                <FileText className="w-3.5 h-3.5" />
-                <span>View & Print Tax Invoice</span>
+                <Printer className="w-3.5 h-3.5" />
+                <span>Print Invoice</span>
+              </button>
+
+              <button
+                type="button"
+                id="btn-success-view-invoice"
+                onClick={handleViewInvoice}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2 px-3 rounded-xl shadow-xs transition-colors cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5 text-cyan-300" />
+                <span>View Invoice</span>
               </button>
             </div>
           </div>
 
-          {/* WhatsApp Admin Dispatch Card */}
+          {/* Customer Automated WhatsApp Confirmation Card */}
+          <div className="bg-sky-50 border border-sky-200 rounded-2xl p-4 space-y-2.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <MessageCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-sky-950 uppercase tracking-wide">
+                    Customer WhatsApp Confirmation
+                  </h4>
+                  <p className="text-[11px] text-sky-800">
+                    To: <strong>{order.customer.phone}</strong> ({order.customer.name})
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-sky-200 text-sky-900">
+                {order.whatsAppNotification?.customerNotification?.status || 'SENT'}
+              </span>
+            </div>
+
+            <p className="text-[11px] text-sky-900 leading-relaxed">
+              Order confirmation has been automatically sent to your WhatsApp number. You do not need to open WhatsApp manually; our automated notification service has dispatched your order details and invoice reference.
+            </p>
+          </div>
+
+          {/* Admin WhatsApp Alert Card (8017341130) */}
           <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                   <MessageCircle className="w-5 h-5" />
                 </div>
                 <div>
@@ -143,28 +183,29 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
                     Admin WhatsApp Notification
                   </h4>
                   <p className="text-[11px] text-emerald-800">
-                    Dispatched to Admin WhatsApp: <strong>+91 {OWNER_WHATSAPP_NUMBER}</strong>
+                    Dispatched to Admin: <strong>+91 {OWNER_WHATSAPP_NUMBER}</strong>
                   </p>
                 </div>
               </div>
               <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md bg-emerald-200 text-emerald-900">
-                {order.whatsAppNotification?.status || 'SENT'}
+                {order.whatsAppNotification?.adminNotification?.status || order.whatsAppNotification?.status || 'SENT'}
               </span>
             </div>
 
             <p className="text-[11px] text-emerald-900 leading-relaxed">
-              Full order details including customer info, product list, custom design tags, and GST Tax invoice reference are formatted and sent directly to Admin WhatsApp (+91 {OWNER_WHATSAPP_NUMBER}).
+              Full order details including customer address, product items, custom branded tags, and GST Tax Invoice are automatically logged and sent to Admin (+91 {OWNER_WHATSAPP_NUMBER}).
             </p>
 
             <div className="flex flex-wrap gap-2 pt-0.5">
-              <button
-                type="button"
-                onClick={handleOpenWhatsApp}
+              <a
+                href={whatsAppUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex-1 inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-3 rounded-xl shadow-xs transition-all cursor-pointer ring-2 ring-emerald-500/20"
               >
                 <MessageCircle className="w-4 h-4 text-white" />
-                <span>Send Order Details to Admin WhatsApp (+91 {OWNER_WHATSAPP_NUMBER})</span>
-              </button>
+                <span>Admin WhatsApp Chat (+91 {OWNER_WHATSAPP_NUMBER})</span>
+              </a>
 
               <button
                 type="button"

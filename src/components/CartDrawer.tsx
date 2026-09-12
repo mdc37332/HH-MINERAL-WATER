@@ -11,7 +11,8 @@ import {
   ShieldCheck,
   Truck,
   Image as ImageIcon,
-  AlertCircle
+  AlertCircle,
+  Video
 } from 'lucide-react';
 import { CheckoutModal } from './CheckoutModal';
 
@@ -128,8 +129,23 @@ export const CartDrawer: React.FC = () => {
                             className="max-h-full max-w-full object-contain"
                           />
                           {isCustom && custom?.uploadedImages && custom.uploadedImages.length > 0 && (
-                            <div className="absolute bottom-0 right-0 w-5 h-5 rounded-tl-md bg-cyan-600 flex items-center justify-center text-white" title="Custom artwork attached">
-                              <ImageIcon className="w-3 h-3" />
+                            <div
+                              className={`absolute bottom-0 right-0 w-5 h-5 rounded-tl-md flex items-center justify-center text-white ${
+                                custom.uploadedImages.some(img => img.mediaType === 'video' || img.type?.startsWith('video/'))
+                                  ? 'bg-purple-600'
+                                  : 'bg-cyan-600'
+                              }`}
+                              title={
+                                custom.uploadedImages.some(img => img.mediaType === 'video' || img.type?.startsWith('video/'))
+                                  ? 'Video reel & artwork attached'
+                                  : 'Custom artwork attached'
+                              }
+                            >
+                              {custom.uploadedImages.some(img => img.mediaType === 'video' || img.type?.startsWith('video/')) ? (
+                                <Video className="w-3 h-3" />
+                              ) : (
+                                <ImageIcon className="w-3 h-3" />
+                              )}
                             </div>
                           )}
                         </div>
@@ -166,9 +182,18 @@ export const CartDrawer: React.FC = () => {
                                 </p>
                               )}
                               {custom.uploadedImages && custom.uploadedImages.length > 0 && (
-                                <p className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
-                                  <span>✓ {custom.uploadedImages.length} Original Image(s) Attached</span>
-                                </p>
+                                <div className="text-[10px] space-y-0.5">
+                                  {custom.uploadedImages.filter(i => i.mediaType !== 'video' && !i.type?.startsWith('video/')).length > 0 && (
+                                    <p className="text-emerald-700 font-semibold flex items-center gap-1">
+                                      <span>✓ {custom.uploadedImages.filter(i => i.mediaType !== 'video' && !i.type?.startsWith('video/')).length} Artwork File(s)</span>
+                                    </p>
+                                  )}
+                                  {(custom.uploadedVideos?.length || custom.uploadedImages.filter(i => i.mediaType === 'video' || i.type?.startsWith('video/')).length > 0) && (
+                                    <p className="text-purple-700 font-semibold flex items-center gap-1">
+                                      <span>🎬 {custom.uploadedVideos?.length || custom.uploadedImages.filter(i => i.mediaType === 'video' || i.type?.startsWith('video/')).length} Video Clip(s)</span>
+                                    </p>
+                                  )}
+                                </div>
                               )}
                             </div>
                           )}

@@ -40,6 +40,7 @@ export interface Product {
   price: number;
   mrp: number;
   image: string;
+  images?: string[]; // Multiple photos / gallery images for the product
   description: string;
   shortDesc: string;
   inStock: boolean;
@@ -50,6 +51,8 @@ export interface Product {
   mineralInfo: MineralAnalysis;
   casePackSize: number; // e.g. 24 bottles per case for 250ml
   packOptions?: number[]; // e.g. [12, 24, 36, 48]
+  videoUrl?: string; // Product showcase or 360 spin video (MP4, WebM or URL)
+  videoTitle?: string;
   customDesignPrice?: number; // Custom design price per bottle (admin-editable, defaults to 2x normal price)
   gstRate?: number; // e.g. 18 (%)
   hsnCode?: string; // "2201"
@@ -78,6 +81,16 @@ export interface ProductAuditLog {
   version?: number;
 }
 
+export interface CustomFeatureItem {
+  id: string;
+  name: string;
+  description?: string;
+  pricePerBottle: number; // e.g. 0.50, 1.00, or 0
+  flatPrice?: number; // e.g. 500 flat
+  enabled: boolean;
+  category: 'cap' | 'label' | 'packaging' | 'water' | 'custom';
+}
+
 export interface CustomDesignDetails {
   eventType: 'Wedding' | 'Corporate' | 'Hotel & Restaurant' | 'Birthday & Party' | 'Personal Branding' | 'Other';
   businessName: string;
@@ -96,7 +109,32 @@ export interface CustomDesignDetails {
     sizeKb?: number;
     type?: string;
     labelPosition?: 'front' | 'back' | 'wrap';
+    mediaType?: 'image' | 'video';
+    durationSec?: number;
+    thumbnailUrl?: string;
   }[];
+  uploadedVideos?: {
+    id: string;
+    url: string; // Base64, blob or cloud URL
+    name: string;
+    sizeKb: number;
+    durationSec?: number;
+    type: string;
+    thumbnailUrl?: string;
+  }[];
+  // Custom features & add-ons
+  customFeatures?: CustomFeatureItem[];
+  qrCodeUrl?: string;
+  qrCodeType?: 'website' | 'gallery' | 'location' | 'menu' | 'custom';
+  packagingType?: string;
+  waterType?: string;
+  // Admin custom design, price & photo extensions:
+  adminProofImage?: string; // High-res approved proof/mockup image provided by admin
+  proofStatus?: 'Pending Review' | 'Proof Ready' | 'Customer Approved' | 'In Printing' | 'Bottled' | 'Dispatched';
+  adminNotes?: string; // Internal production notes
+  plateSetupCharge?: number; // Optional custom tooling / cylinder fee
+  discountAmount?: number; // Admin negotiated discount
+  customPricePerBottle?: number; // Custom unit price override
 }
 
 export interface CartItem {
@@ -138,6 +176,21 @@ export interface OrderStatusHistoryItem {
   updatedBy?: string;
 }
 
+export type WhatsAppDeliveryStatus = 'PENDING' | 'SENT' | 'DELIVERED' | 'FAILED' | 'ACKNOWLEDGED';
+
+export interface SingleWhatsAppNotificationRecord {
+  status: WhatsAppDeliveryStatus;
+  targetPhone: string;
+  recipientName?: string;
+  messageFormatted?: string;
+  sentAt?: string;
+  deliveredAt?: string;
+  retryCount: number;
+  lastAttempt?: string;
+  error?: string;
+  messageId?: string;
+}
+
 export interface WhatsAppNotificationState {
   status: 'SENT' | 'PENDING' | 'FAILED' | 'ACKNOWLEDGED';
   sentAt?: string;
@@ -145,6 +198,9 @@ export interface WhatsAppNotificationState {
   messageFormatted: string;
   retryCount: number;
   lastAttempt?: string;
+  // Separate status records for Customer & Admin
+  customerNotification?: SingleWhatsAppNotificationRecord;
+  adminNotification?: SingleWhatsAppNotificationRecord;
 }
 
 export interface Order {
@@ -162,6 +218,7 @@ export interface Order {
   orderNotes?: string;
   isCustomOrder: boolean;
   hasOriginalImage: boolean;
+  hasUploadedVideo?: boolean;
   status: OrderStatus;
   statusHistory: OrderStatusHistoryItem[];
   whatsAppNotification: WhatsAppNotificationState;
@@ -196,12 +253,17 @@ export interface AdminSettings {
   invoicePrefix: string; // "HH/2026/"
   fssaiNumber?: string; // FSSAI License No.
   panNumber?: string;
+  pan?: string;
   cinNumber?: string;
   bankAccountName?: string;
+  accountHolderName?: string;
   bankName?: string;
   bankAccountNumber?: string;
+  accountNumber?: string;
   bankIfsc?: string;
+  ifscCode?: string;
   bankUpiId?: string;
+  upiId?: string;
   invoiceTerms?: string;
 }
 
@@ -272,6 +334,7 @@ export interface Invoice {
   orderId: string;
   userUid?: string;
   invoiceDate: string; // ISO String
+  financialYear?: string; // e.g. "2026-27"
   supplyDate: string;
   placeOfSupply: string; // e.g. "West Bengal (19)"
   reverseCharge: 'No' | 'Yes';

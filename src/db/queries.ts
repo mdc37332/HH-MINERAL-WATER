@@ -46,6 +46,9 @@ export async function getAllProducts(): Promise<Product[]> {
       category: p.category as any,
       badge: p.badge || undefined,
       casePackSize: p.casePackSize,
+      packOptions: (p.packOptions as number[]) || undefined,
+      videoUrl: p.videoUrl || undefined,
+      videoTitle: p.videoTitle || undefined,
       features: p.features as string[],
       mineralInfo: p.mineralInfo as any,
       gstRate: p.gstRate ?? 18,
@@ -61,6 +64,47 @@ export async function getAllProducts(): Promise<Product[]> {
   } catch (error) {
     console.error('Database query getAllProducts failed:', error);
     throw new Error('Failed to fetch products.', { cause: error });
+  }
+}
+
+export async function getProductById(productId: string): Promise<Product | null> {
+  try {
+    const rows = await db.select().from(products).where(eq(products.id, productId));
+    if (rows.length === 0) return null;
+    const p = rows[0];
+    return {
+      id: p.id,
+      name: p.name,
+      size: p.size,
+      price: p.price,
+      mrp: p.mrp,
+      customDesignPrice: p.customDesignPrice || (p.price * 2),
+      image: p.image,
+      description: p.description,
+      shortDesc: p.shortDesc,
+      inStock: p.inStock,
+      minOrderQty: p.minOrderQty,
+      category: p.category as any,
+      badge: p.badge || undefined,
+      casePackSize: p.casePackSize,
+      packOptions: (p.packOptions as number[]) || undefined,
+      videoUrl: p.videoUrl || undefined,
+      videoTitle: p.videoTitle || undefined,
+      features: p.features as string[],
+      mineralInfo: p.mineralInfo as any,
+      gstRate: p.gstRate ?? 18,
+      hsnCode: p.hsnCode || '2201',
+      discountPercent: p.discountPercent || (p.mrp > p.price ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0),
+      stockCount: p.stockCount ?? 500,
+      stockStatus: (p.stockStatus as any) || (p.inStock ? 'In Stock' : 'Out of Stock'),
+      tags: (p.tags as string[]) || [],
+      version: p.version || 1,
+      updatedAt: p.updatedAt ? p.updatedAt.toISOString() : undefined,
+      updatedBy: p.updatedBy || undefined,
+    };
+  } catch (error) {
+    console.error('Database query getProductById failed:', error);
+    return null;
   }
 }
 
@@ -85,6 +129,9 @@ export async function upsertProduct(product: Product, adminEmail: string = 'mdhu
       category: product.category || 'Standard',
       badge: product.badge || null,
       casePackSize: Math.max(1, Number(product.casePackSize) || 24),
+      packOptions: Array.isArray(product.packOptions) ? product.packOptions : [12, 24, 36, 48],
+      videoUrl: product.videoUrl || null,
+      videoTitle: product.videoTitle || null,
       features: Array.isArray(product.features) ? product.features : ['7-stage UV & Ozonation', 'BPA-Free PET'],
       mineralInfo: product.mineralInfo || {
         calcium: '20 mg/L',
@@ -221,9 +268,12 @@ export async function getAllOrders(): Promise<Order[]> {
       orderNotes: o.orderNotes || undefined,
       isCustomOrder: o.isCustomOrder,
       hasOriginalImage: o.hasOriginalImage,
+      hasUploadedVideo: o.hasUploadedVideo || false,
       status: o.status as any,
       statusHistory: o.statusHistory as any,
       whatsAppNotification: o.whatsAppNotification as any,
+      invoiceNumber: o.invoiceNumber || undefined,
+      invoiceId: o.invoiceId || undefined,
     }));
   } catch (error) {
     console.error('Database query getAllOrders failed:', error);
@@ -231,12 +281,53 @@ export async function getAllOrders(): Promise<Order[]> {
   }
 }
 
+export async function getOrderById(orderId: string): Promise<Order | null> {
+  try {
+    const rows = await db.select().from(orders).where(eq(orders.id, orderId));
+    if (rows.length === 0) return null;
+    const o = rows[0];
+    return {
+      id: o.id,
+      createdAt: o.createdAt ? o.createdAt.toISOString() : new Date().toISOString(),
+      customer: {
+        name: o.customerName,
+        phone: o.customerPhone,
+        email: o.customerEmail || undefined,
+        address: o.customerAddress,
+        landmark: o.customerLandmark || undefined,
+        city: o.customerCity,
+        pincode: o.customerPincode,
+      },
+      items: o.items as any,
+      subtotal: o.subtotal,
+      deliveryCharge: o.deliveryCharge,
+      discount: o.discount,
+      totalAmount: o.totalAmount,
+      paymentMethod: o.paymentMethod as any,
+      paymentStatus: o.paymentStatus as any,
+      orderNotes: o.orderNotes || undefined,
+      isCustomOrder: o.isCustomOrder,
+      hasOriginalImage: o.hasOriginalImage,
+      hasUploadedVideo: o.hasUploadedVideo || false,
+      status: o.status as any,
+      statusHistory: o.statusHistory as any,
+      whatsAppNotification: o.whatsAppNotification as any,
+      invoiceNumber: o.invoiceNumber || undefined,
+      invoiceId: o.invoiceId || undefined,
+    };
+  } catch (error) {
+    console.error('Database query getOrderById failed:', error);
+    return null;
+  }
+}
+
 export async function createOrder(order: Order, userUid?: string) {
   try {
+    const effectiveUserUid = userUid || order.userUid || null;
     const result = await db.insert(orders)
       .values({
         id: order.id,
-        userUid: userUid || null,
+        userUid: effectiveUserUid,
         customerName: order.customer.name,
         customerPhone: order.customer.phone,
         customerEmail: order.customer.email || null,
@@ -254,9 +345,12 @@ export async function createOrder(order: Order, userUid?: string) {
         orderNotes: order.orderNotes || null,
         isCustomOrder: order.isCustomOrder,
         hasOriginalImage: order.hasOriginalImage,
+        hasUploadedVideo: order.hasUploadedVideo || false,
         status: order.status,
         statusHistory: order.statusHistory,
         whatsAppNotification: order.whatsAppNotification,
+        invoiceNumber: order.invoiceNumber || null,
+        invoiceId: order.invoiceId || null,
       })
       .returning();
     return result[0];
@@ -283,6 +377,53 @@ export async function updateOrderStatusInDb(
   } catch (error) {
     console.error('Database query updateOrderStatusInDb failed:', error);
     throw new Error('Failed to update order status.', { cause: error });
+  }
+}
+
+export async function updateOrderInDb(order: Order) {
+  try {
+    const result = await db.update(orders)
+      .set({
+        customerName: order.customer.name,
+        customerPhone: order.customer.phone,
+        customerEmail: order.customer.email || null,
+        customerAddress: order.customer.address,
+        customerLandmark: order.customer.landmark || null,
+        customerCity: order.customer.city,
+        customerPincode: order.customer.pincode,
+        items: order.items,
+        subtotal: order.subtotal,
+        deliveryCharge: order.deliveryCharge,
+        discount: order.discount,
+        totalAmount: order.totalAmount,
+        paymentMethod: order.paymentMethod,
+        paymentStatus: order.paymentStatus,
+        orderNotes: order.orderNotes || null,
+        isCustomOrder: order.isCustomOrder,
+        hasOriginalImage: order.hasOriginalImage,
+        hasUploadedVideo: order.hasUploadedVideo || false,
+        status: order.status,
+        statusHistory: order.statusHistory,
+        whatsAppNotification: order.whatsAppNotification,
+        invoiceNumber: order.invoiceNumber || null,
+        invoiceId: order.invoiceId || null,
+      })
+      .where(eq(orders.id, order.id))
+      .returning();
+    return result[0];
+  } catch (error) {
+    console.error('Database query updateOrderInDb failed:', error);
+    throw new Error('Failed to update order in database.', { cause: error });
+  }
+}
+
+export async function deleteAllOrdersInDb() {
+  try {
+    const result = await db.delete(orders).returning();
+    return result;
+  } catch (error) {
+    console.error('Database query deleteAllOrdersInDb failed:', error);
+    throw new Error('Failed to delete all orders.', { cause: error });
   }
 }
 
