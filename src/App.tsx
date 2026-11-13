@@ -49,57 +49,59 @@ const MainContent: React.FC = () => {
     setActiveInvoiceAutoPrint
   } = useStore();
 
+  const [hydrationAdvisorGoal, setHydrationAdvisorGoal] = React.useState<'events' | 'corporate' | 'household' | 'dining'>('events');
+
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 selection:bg-cyan-500 selection:text-white">
+    <div className="min-h-screen w-full overflow-x-hidden flex flex-col bg-[#000000] text-neutral-100 selection:bg-[#C5A059] selection:text-black">
       {/* Navigation Header */}
       <Navbar />
 
       {/* Dynamic View Switching */}
       <main className="flex-1">
         {currentSection === 'home' && (
-          <div className="space-y-4">
+          <div className="space-y-6">
             <HeroSection />
 
             {/* Quality & Filtration Features Banner */}
-            <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-cyan-50 text-cyan-600 flex items-center justify-center shrink-0">
-                    <Droplets className="w-6 h-6" />
+            <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-[#121212] p-5 rounded-2xl border border-[#242424] hover:border-[#C5A059]/40 shadow-sm flex items-center gap-4 transition-all duration-300">
+                  <div className="w-12 h-12 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/30 text-[#DFC283] flex items-center justify-center shrink-0">
+                    <Droplets className="w-6 h-6 text-[#C5A059]" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-xs text-slate-900">7-Stage UV & Ozonated</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Dual micro-filtered purification</p>
+                    <h4 className="font-bold text-xs text-white">7-Stage UV & Ozonated</h4>
+                    <p className="text-[11px] text-neutral-400 mt-0.5">Dual micro-filtered pristine purity</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-6 h-6" />
+                <div className="bg-[#121212] p-5 rounded-2xl border border-[#242424] hover:border-[#C5A059]/40 shadow-sm flex items-center gap-4 transition-all duration-300">
+                  <div className="w-12 h-12 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/30 text-[#DFC283] flex items-center justify-center shrink-0">
+                    <ShieldCheck className="w-6 h-6 text-[#C5A059]" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-xs text-slate-900">7.4 pH Balanced Alkaline</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Enriched with Calcium & Magnesium</p>
+                    <h4 className="font-bold text-xs text-white">7.4 pH Balanced Alkaline</h4>
+                    <p className="text-[11px] text-neutral-400 mt-0.5">Enriched with Calcium & Magnesium</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-6 h-6" />
+                <div className="bg-[#121212] p-5 rounded-2xl border border-[#242424] hover:border-[#C5A059]/40 shadow-sm flex items-center gap-4 transition-all duration-300">
+                  <div className="w-12 h-12 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/30 text-[#DFC283] flex items-center justify-center shrink-0">
+                    <Sparkles className="w-6 h-6 text-[#C5A059]" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-xs text-slate-900">Custom Label Design</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">For weddings & corporate events</p>
+                    <h4 className="font-bold text-xs text-white">Bespoke Label Atelier</h4>
+                    <p className="text-[11px] text-neutral-400 mt-0.5">For luxury weddings & corporate galas</p>
                   </div>
                 </div>
 
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-                    <Truck className="w-6 h-6" />
+                <div className="bg-[#121212] p-5 rounded-2xl border border-[#242424] hover:border-[#C5A059]/40 shadow-sm flex items-center gap-4 transition-all duration-300">
+                  <div className="w-12 h-12 rounded-xl bg-[#C5A059]/10 border border-[#C5A059]/30 text-[#DFC283] flex items-center justify-center shrink-0">
+                    <Truck className="w-6 h-6 text-[#C5A059]" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-xs text-slate-900">Fast Doorstep Delivery</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Direct from HH bottling plant</p>
+                    <h4 className="font-bold text-xs text-white">Express Fleet Dispatch</h4>
+                    <p className="text-[11px] text-neutral-400 mt-0.5">Direct from HH bottling facility</p>
                   </div>
                 </div>
               </div>
@@ -109,20 +111,21 @@ const MainContent: React.FC = () => {
             <ProductCatalogSection />
 
             {/* Purity & Mineral Breakdown Infographic */}
-            <section className="bg-gradient-to-b from-white via-cyan-50/40 to-white py-16 px-4 sm:px-6 lg:px-8 border-y border-slate-200">
+            <section className="bg-gradient-to-b from-[#0a0a0a] via-[#121212] to-[#0a0a0a] py-16 px-4 sm:px-6 lg:px-8 border-y border-[#222222]">
               <div className="max-w-7xl mx-auto space-y-12">
-                <div className="text-center max-w-2xl mx-auto space-y-2">
-                  <span className="text-xs font-extrabold uppercase tracking-widest text-cyan-600">
+                <div className="text-center max-w-2xl mx-auto space-y-2.5">
+                  <span className="text-xs font-extrabold uppercase tracking-widest text-[#C5A059] px-3.5 py-1 rounded-full bg-[#C5A059]/10 border border-[#C5A059]/30 inline-block">
                     Laboratory Certified Composition
                   </span>
-                  <h2 className="font-heading text-3xl font-extrabold text-slate-900">
-                    Why Choose <span className="text-cyan-600">HH Mineral Water</span>?
+                  <h2 className="font-heading text-3xl sm:text-4xl font-extrabold text-white">
+                    Why Choose <span className="text-[#DFC283]">HH Mineral Water</span>?
                   </h2>
-                  <p className="text-xs sm:text-sm text-slate-600">
+                  <p className="text-xs sm:text-sm text-neutral-400 leading-relaxed">
                     Every bottle meets stringent BIS and international health standards with essential mineral electrolytes for deep cellular hydration.
                   </p>
                 </div>
 
+                {/* Mineral Metric Cards in Graphite & Gold */}
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 text-center">
                   {[
                     { label: 'Calcium (Ca++)', val: '22 mg/L', desc: 'Strengthens bones & teeth' },
@@ -134,13 +137,93 @@ const MainContent: React.FC = () => {
                   ].map((stat, i) => (
                     <div
                       key={i}
-                      className="bg-white rounded-2xl p-4 border border-cyan-200/80 shadow-2xs flex flex-col justify-between space-y-2"
+                      className="bg-[#141414] rounded-2xl p-4 border border-[#262626] hover:border-[#C5A059]/50 shadow-sm flex flex-col justify-between space-y-2 transition-all hover:-translate-y-0.5"
                     >
-                      <span className="text-[11px] font-bold text-slate-500 uppercase">{stat.label}</span>
-                      <span className="font-heading text-xl font-black text-cyan-700">{stat.val}</span>
-                      <span className="text-[10px] text-slate-400">{stat.desc}</span>
+                      <span className="text-[10px] sm:text-[11px] font-bold text-neutral-400 uppercase tracking-wider">{stat.label}</span>
+                      <span className="font-heading text-xl sm:text-2xl font-black text-[#DFC283]">{stat.val}</span>
+                      <span className="text-[10px] text-neutral-500">{stat.desc}</span>
                     </div>
                   ))}
+                </div>
+
+                {/* Quality & Hydration Advisor Interactive Widget */}
+                <div className="mt-8 bg-[#121212] border border-[#282828] rounded-3xl p-6 sm:p-8 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-80 h-80 bg-[#C5A059]/5 rounded-full blur-3xl pointer-events-none" />
+                  
+                  <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                    <div className="space-y-2 max-w-xl">
+                      <div className="flex items-center gap-2 text-[#C5A059] text-xs font-bold uppercase tracking-wider">
+                        <Award className="w-4 h-4" />
+                        <span>Interactive Volume & Event Advisor</span>
+                      </div>
+                      <h3 className="font-heading text-xl sm:text-2xl font-bold text-white">
+                        Curated Bottling for Every Setting
+                      </h3>
+                      <p className="text-xs text-neutral-400 leading-relaxed">
+                        Select your occasion to view our certified packaging recommendations, custom foil stamping options, and volume discounts.
+                      </p>
+                    </div>
+
+                    {/* Occasion Selector Pills */}
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: 'events', label: 'Weddings & Galas', bottle: '250ml / 500ml', hint: 'Gold Foil Custom Labels' },
+                        { id: 'corporate', label: 'Executive Boardrooms', bottle: '500ml / 1L', hint: 'Minimal Matte Finishes' },
+                        { id: 'dining', label: 'Luxury Hospitality', bottle: '250ml / 1L', hint: 'Artisan Table Water' },
+                        { id: 'household', label: 'Home Hydration', bottle: '1L / 2L Packs', hint: 'Daily Mineral Balance' }
+                      ].map(tab => (
+                        <button
+                          key={tab.id}
+                          onClick={() => setHydrationAdvisorGoal(tab.id as any)}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            hydrationAdvisorGoal === tab.id
+                              ? 'bg-[#C5A059] text-black shadow-md shadow-[#C5A059]/20'
+                              : 'bg-[#181818] text-neutral-300 hover:bg-[#222222] border border-[#2a2a2a]'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Active Advisor Details Bar */}
+                  <div className="mt-6 pt-6 border-t border-[#222222] grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+                    <div className="bg-[#161616] p-4 rounded-xl border border-[#262626]">
+                      <span className="text-neutral-500 uppercase text-[10px] font-bold block">Recommended Sizes</span>
+                      <p className="text-white font-bold text-sm mt-1">
+                        {hydrationAdvisorGoal === 'events' && '250ml Pocket & 500ml Signature Bottles'}
+                        {hydrationAdvisorGoal === 'corporate' && '500ml Executive & 1L Boardroom Bottles'}
+                        {hydrationAdvisorGoal === 'dining' && '250ml Banquet & 1L Premium Spring Bottles'}
+                        {hydrationAdvisorGoal === 'household' && '1L Family Packs & 2L Hydration Bottles'}
+                      </p>
+                    </div>
+                    <div className="bg-[#161616] p-4 rounded-xl border border-[#262626]">
+                      <span className="text-neutral-500 uppercase text-[10px] font-bold block">Customization Feature</span>
+                      <p className="text-[#DFC283] font-bold text-sm mt-1">
+                        {hydrationAdvisorGoal === 'events' && 'Gold / Silver Embossed Custom Monogram'}
+                        {hydrationAdvisorGoal === 'corporate' && 'High-Res Corporate Brand & QR Code Sync'}
+                        {hydrationAdvisorGoal === 'dining' && 'Table Numbering & Restaurant Branding'}
+                        {hydrationAdvisorGoal === 'household' && 'Direct Weekly Bottling Subscription'}
+                      </p>
+                    </div>
+                    <div className="bg-[#161616] p-4 rounded-xl border border-[#262626] flex items-center justify-between">
+                      <div>
+                        <span className="text-neutral-500 uppercase text-[10px] font-bold block">Next Step</span>
+                        <p className="text-white font-bold text-sm mt-1">Explore Options</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setCurrentSection(hydrationAdvisorGoal === 'events' || hydrationAdvisorGoal === 'corporate' ? 'custom-design' : 'products');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="px-4 py-2 bg-[#222222] hover:bg-[#C5A059] hover:text-black text-[#DFC283] rounded-lg text-xs font-bold border border-[#C5A059]/40 transition-colors flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <span>{hydrationAdvisorGoal === 'events' || hydrationAdvisorGoal === 'corporate' ? 'Design Labels' : 'View Catalog'}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </section>

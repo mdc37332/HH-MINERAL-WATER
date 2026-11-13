@@ -1,6 +1,6 @@
 {
   "name": "HH Mineral Water",
-  "description": "Premium mineral water e-commerce and bulk distribution platform featuring custom label studio, real-time Firestore sync, GSTIN 18% tax invoice generation with print/share, customer portal, and comprehensive owner admin panel.",
-  "requestFramePermissions": [],
+  "description": "Premium mineral water e-commerce and bulk distribution platform featuring automated background admin order email dispatch to admin email ID, WhatsApp order alerts (+91 8017341130) via Meta Cloud API, live order audio/push alerts, custom label studio, real-time Firestore sync, and GSTIN 18% tax invoices.",
+  "requestFramePermissions": ["geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

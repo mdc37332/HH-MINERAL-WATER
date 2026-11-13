@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BulkInquiry } from '../../types';
 import { INITIAL_BULK_INQUIRIES } from '../../data/initialProducts';
 import { useStore } from '../../context/StoreContext';
+import { safeStorage } from '../../lib/storage';
 import {
   Calendar,
   Building2,
@@ -32,7 +33,7 @@ export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast: p
 
   const [inquiries, setInquiries] = useState<BulkInquiry[]>(() => {
     try {
-      const saved = localStorage.getItem('hh_bulk_inquiries');
+      const saved = safeStorage.getItem('hh_bulk_inquiries');
       return saved ? JSON.parse(saved) : INITIAL_BULK_INQUIRIES;
     } catch {
       return INITIAL_BULK_INQUIRIES;
@@ -66,7 +67,7 @@ export const BulkInquiriesTab: React.FC<BulkInquiriesTabProps> = ({ showToast: p
   const saveInquiries = (updated: BulkInquiry[]) => {
     setInquiries(updated);
     try {
-      localStorage.setItem('hh_bulk_inquiries', JSON.stringify(updated));
+      safeStorage.setItem('hh_bulk_inquiries', JSON.stringify(updated));
     } catch (e) {
       console.warn('Failed to save bulk inquiries:', e);
     }

@@ -3,6 +3,8 @@ import { useStore } from '../context/StoreContext';
 import { CustomerAddress } from '../types';
 import { normalizePhoneNumber } from '../lib/whatsapp';
 import { changeCustomerPassword } from '../lib/firebase';
+import { LocationPickerMap } from './LocationPickerMap';
+import { createCustomerAddressMapUrl } from '../lib/googleMaps';
 import {
   User,
   Mail,
@@ -27,7 +29,9 @@ import {
   FileText,
   Printer,
   Clock,
-  ArrowRight
+  ArrowRight,
+  ExternalLink,
+  Compass
 } from 'lucide-react';
 
 export const CustomerProfileSection: React.FC = () => {
@@ -70,21 +74,26 @@ export const CustomerProfileSection: React.FC = () => {
   const [addressCity, setAddressCity] = useState('Kolkata');
   const [addressPincode, setAddressPincode] = useState('');
   const [addressIsDefault, setAddressIsDefault] = useState(false);
+  const [addressLatitude, setAddressLatitude] = useState<number | undefined>(undefined);
+  const [addressLongitude, setAddressLongitude] = useState<number | undefined>(undefined);
+  const [addressAccuracy, setAddressAccuracy] = useState<number | undefined>(undefined);
+  const [addressGateNote, setAddressGateNote] = useState<string>('');
+  const [addressGoogleMapsUrl, setAddressGoogleMapsUrl] = useState<string>('');
   const [addressError, setAddressError] = useState('');
 
   if (!currentUser) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-16 text-center space-y-4">
-        <div className="w-16 h-16 rounded-full bg-cyan-100 text-cyan-600 flex items-center justify-center mx-auto">
+        <div className="w-16 h-16 rounded-full bg-[#1c1c1c] border border-[#C5A059]/40 text-[#DFC283] flex items-center justify-center mx-auto">
           <User className="w-8 h-8" />
         </div>
-        <h2 className="text-2xl font-black text-slate-900">Customer Account Sign In Required</h2>
-        <p className="text-sm text-slate-600 max-w-md mx-auto">
+        <h2 className="text-2xl font-black text-white">Customer Account Sign In Required</h2>
+        <p className="text-sm text-neutral-400 max-w-md mx-auto">
           Please sign in or create an account to view and manage your profile, saved addresses, and personal order history.
         </p>
         <button
           onClick={() => openAuthModal('login', 'Sign in to access your Customer Profile & Saved Addresses')}
-          className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-6 py-3 rounded-xl shadow-md transition-all cursor-pointer"
+          className="bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black font-bold px-6 py-3 rounded-xl shadow-md transition-all cursor-pointer"
         >
           Sign In / Create Account
         </button>
@@ -156,8 +165,13 @@ export const CustomerProfileSection: React.FC = () => {
     setAddressStreet('');
     setAddressLandmark('');
     setAddressCity('Kolkata');
-    setAddressPincode('');
+    setAddressPincode('700091');
     setAddressIsDefault(customerProfile?.addresses?.length === 0);
+    setAddressLatitude(undefined);
+    setAddressLongitude(undefined);
+    setAddressAccuracy(undefined);
+    setAddressGateNote('');
+    setAddressGoogleMapsUrl('');
     setAddressError('');
     setIsAddressModalOpen(true);
   };
@@ -172,6 +186,11 @@ export const CustomerProfileSection: React.FC = () => {
     setAddressCity(addr.city);
     setAddressPincode(addr.pincode);
     setAddressIsDefault(addr.isDefault);
+    setAddressLatitude(addr.latitude);
+    setAddressLongitude(addr.longitude);
+    setAddressAccuracy(addr.accuracy);
+    setAddressGateNote(addr.gateNote || '');
+    setAddressGoogleMapsUrl(addr.googleMapsUrl || '');
     setAddressError('');
     setIsAddressModalOpen(true);
   };
@@ -207,7 +226,14 @@ export const CustomerProfileSection: React.FC = () => {
       landmark: addressLandmark.trim() || undefined,
       city: addressCity.trim(),
       pincode: cleanPin,
-      isDefault: addressIsDefault
+      isDefault: addressIsDefault,
+      latitude: addressLatitude,
+      longitude: addressLongitude,
+      accuracy: addressAccuracy,
+      gateNote: addressGateNote.trim() || undefined,
+      googleMapsUrl: addressLatitude && addressLongitude
+        ? `https://www.google.com/maps/search/?api=1&query=${addressLatitude},${addressLongitude}`
+        : addressGoogleMapsUrl || undefined
     };
 
     try {
@@ -222,27 +248,27 @@ export const CustomerProfileSection: React.FC = () => {
   const getAddressIcon = (label: string) => {
     switch (label) {
       case 'Home':
-        return <Home className="w-4 h-4 text-cyan-600" />;
+        return <Home className="w-4 h-4 text-[#C5A059]" />;
       case 'Office':
-        return <Briefcase className="w-4 h-4 text-blue-600" />;
+        return <Briefcase className="w-4 h-4 text-[#DFC283]" />;
       case 'Event Venue':
-        return <Sparkles className="w-4 h-4 text-purple-600" />;
+        return <Sparkles className="w-4 h-4 text-purple-400" />;
       case 'Warehouse':
-        return <Building className="w-4 h-4 text-slate-800" />;
+        return <Building className="w-4 h-4 text-neutral-300" />;
       default:
-        return <MapPin className="w-4 h-4 text-slate-600" />;
+        return <MapPin className="w-4 h-4 text-[#C5A059]" />;
     }
   };
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Top Banner Overview */}
-      <div className="bg-gradient-to-r from-slate-900 via-sky-950 to-cyan-900 text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-slate-800 relative overflow-hidden">
-        <div className="absolute -top-24 -right-24 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="bg-[#121212] text-white rounded-3xl p-6 sm:p-8 shadow-xl border border-[#282828] relative overflow-hidden">
+        <div className="absolute -top-24 -right-24 w-64 h-64 bg-[#C5A059]/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="flex items-center gap-4 sm:gap-5">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white text-2xl sm:text-3xl font-black shadow-lg shadow-cyan-500/30 shrink-0">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-tr from-[#C5A059] to-[#D4AF37] flex items-center justify-center text-black text-2xl sm:text-3xl font-black shadow-lg shadow-[#C5A059]/20 shrink-0">
               {(customerProfile?.displayName || currentUser?.displayName || currentUser?.email || 'C')[0].toUpperCase()}
             </div>
             <div>
@@ -250,17 +276,17 @@ export const CustomerProfileSection: React.FC = () => {
                 <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
                   {customerProfile?.displayName || currentUser?.displayName || 'Valued Customer'}
                 </h1>
-                <span className="bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full">
+                <span className="bg-[#C5A059]/15 text-[#DFC283] border border-[#C5A059]/40 text-[10px] uppercase font-black tracking-wider px-2.5 py-0.5 rounded-full">
                   Customer
                 </span>
               </div>
-              <p className="text-xs sm:text-sm text-cyan-200 mt-1 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5" />
+              <p className="text-xs sm:text-sm text-neutral-300 mt-1 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-[#C5A059]" />
                 <span>{currentUser.email}</span>
               </p>
               {customerProfile?.phone && (
-                <p className="text-xs text-cyan-200/80 mt-0.5 flex items-center gap-1.5">
-                  <Phone className="w-3.5 h-3.5" />
+                <p className="text-xs text-neutral-400 mt-0.5 flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5 text-[#C5A059]" />
                   <span>{customerProfile.phone}</span>
                 </p>
               )}
@@ -270,15 +296,15 @@ export const CustomerProfileSection: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => setCurrentSection('orders')}
-              className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition-all cursor-pointer"
+              className="flex items-center gap-2 bg-[#1c1c1c] hover:bg-[#252525] border border-[#333333] hover:border-[#C5A059]/50 text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition-all cursor-pointer"
             >
-              <Package className="w-4 h-4 text-cyan-300" />
+              <Package className="w-4 h-4 text-[#C5A059]" />
               <span>My Orders ({myOrders.length})</span>
             </button>
 
             <button
               onClick={logout}
-              className="flex items-center gap-2 bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-200 hover:text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition-all cursor-pointer"
+              className="flex items-center gap-2 bg-rose-950/40 hover:bg-rose-900/50 border border-rose-800/40 text-rose-300 hover:text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition-all cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
               <span>Sign Out</span>
@@ -292,10 +318,10 @@ export const CustomerProfileSection: React.FC = () => {
         {/* Left Column: Personal Information & Password Security (1 col) */}
         <div className="space-y-6">
           {/* Profile Details Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-heading text-base font-bold text-slate-900 flex items-center gap-2">
-                <User className="w-4 h-4 text-cyan-600" />
+          <div className="bg-[#121212] rounded-3xl border border-[#262626] p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#242424] pb-3">
+              <h3 className="font-heading text-base font-bold text-white flex items-center gap-2">
+                <User className="w-4 h-4 text-[#C5A059]" />
                 <span>Personal Information</span>
               </h3>
               {!isEditingProfile && (
@@ -305,9 +331,9 @@ export const CustomerProfileSection: React.FC = () => {
                     setEditPhone(customerProfile?.phone || '');
                     setIsEditingProfile(true);
                   }}
-                  className="text-xs font-bold text-cyan-600 hover:text-cyan-800 flex items-center gap-1 cursor-pointer"
+                  className="text-xs font-bold text-[#DFC283] hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
                 >
-                  <Edit2 className="w-3.5 h-3.5" />
+                  <Edit2 className="w-3.5 h-3.5 text-[#C5A059]" />
                   <span>Edit</span>
                 </button>
               )}
@@ -316,43 +342,43 @@ export const CustomerProfileSection: React.FC = () => {
             {isEditingProfile ? (
               <form onSubmit={handleSaveProfile} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">Full Name</label>
                   <input
                     type="text"
                     required
                     value={editName}
                     onChange={e => setEditName(e.target.value)}
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white focus:border-[#C5A059] outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Mobile Number</label>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">Mobile Number</label>
                   <input
                     type="tel"
                     value={editPhone}
                     onChange={e => setEditPhone(e.target.value)}
                     placeholder="+91 9876543210"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white placeholder:text-neutral-500 focus:border-[#C5A059] outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">Email Address</label>
+                  <label className="block text-xs font-bold text-neutral-400 mb-1">Email Address</label>
                   <input
                     type="email"
                     disabled
                     value={currentUser.email || ''}
-                    className="w-full px-3.5 py-2 text-sm bg-slate-100 border border-slate-200 text-slate-500 rounded-xl cursor-not-allowed"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818]/60 border border-[#282828] text-neutral-400 rounded-xl cursor-not-allowed"
                   />
-                  <span className="text-[10px] text-slate-400">Email is linked with your secure auth identity.</span>
+                  <span className="text-[10px] text-neutral-500">Email is linked with your secure auth identity.</span>
                 </div>
 
                 <div className="flex items-center gap-2 pt-2">
                   <button
                     type="submit"
                     disabled={profileSaving}
-                    className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs py-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="flex-1 bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs py-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>{profileSaving ? 'Saving...' : 'Save Profile'}</span>
@@ -360,7 +386,7 @@ export const CustomerProfileSection: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setIsEditingProfile(false)}
-                    className="px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                    className="px-3 py-2 text-xs font-bold text-neutral-400 hover:text-white hover:bg-[#222222] rounded-xl cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
@@ -369,24 +395,24 @@ export const CustomerProfileSection: React.FC = () => {
             ) : (
               <div className="space-y-3 text-xs">
                 <div>
-                  <span className="text-slate-400 block">Full Name</span>
-                  <span className="font-semibold text-slate-900 text-sm">
+                  <span className="text-neutral-400 block">Full Name</span>
+                  <span className="font-semibold text-white text-sm">
                     {customerProfile?.displayName || currentUser?.displayName || 'Not Set'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Email Address</span>
-                  <span className="font-semibold text-slate-900">{currentUser.email}</span>
+                  <span className="text-neutral-400 block">Email Address</span>
+                  <span className="font-semibold text-white">{currentUser.email}</span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Mobile Number</span>
-                  <span className="font-semibold text-slate-900">
+                  <span className="text-neutral-400 block">Mobile Number</span>
+                  <span className="font-semibold text-white">
                     {customerProfile?.phone || 'Not provided'}
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-400 block">Account UID</span>
-                  <span className="font-mono text-[10px] text-slate-500 truncate block">
+                  <span className="text-neutral-400 block">Account UID</span>
+                  <span className="font-mono text-[10px] text-neutral-500 truncate block">
                     {currentUser.uid}
                   </span>
                 </div>
@@ -395,23 +421,23 @@ export const CustomerProfileSection: React.FC = () => {
           </div>
 
           {/* Security & Password Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-heading text-base font-bold text-slate-900 flex items-center gap-2">
-                <Lock className="w-4 h-4 text-cyan-600" />
+          <div className="bg-[#121212] rounded-3xl border border-[#262626] p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#242424] pb-3">
+              <h3 className="font-heading text-base font-bold text-white flex items-center gap-2">
+                <Lock className="w-4 h-4 text-[#C5A059]" />
                 <span>Security & Password</span>
               </h3>
             </div>
 
             {!isChangingPassword ? (
               <div className="space-y-3">
-                <p className="text-xs text-slate-600">
+                <p className="text-xs text-neutral-400">
                   Keep your account secure with a strong password.
                 </p>
                 <button
                   type="button"
                   onClick={() => setIsChangingPassword(true)}
-                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer"
+                  className="w-full bg-[#1c1c1c] hover:bg-[#242424] text-neutral-200 border border-[#333333] hover:border-[#C5A059]/40 font-bold text-xs py-2.5 px-4 rounded-xl transition-all cursor-pointer"
                 >
                   Change Password
                 </button>
@@ -419,14 +445,14 @@ export const CustomerProfileSection: React.FC = () => {
             ) : (
               <form onSubmit={handleChangePassword} className="space-y-3">
                 {passwordError && (
-                  <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-start gap-2">
+                  <div className="p-2.5 bg-rose-950/40 border border-rose-800/40 text-rose-300 text-xs rounded-xl flex items-start gap-2">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <span>{passwordError}</span>
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">New Password</label>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">New Password</label>
                   <input
                     type="password"
                     required
@@ -437,12 +463,12 @@ export const CustomerProfileSection: React.FC = () => {
                     autoCorrect="off"
                     spellCheck={false}
                     data-lpignore="true"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white focus:border-[#C5A059] outline-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Confirm New Password</label>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">Confirm New Password</label>
                   <input
                     type="password"
                     required
@@ -453,7 +479,7 @@ export const CustomerProfileSection: React.FC = () => {
                     autoCorrect="off"
                     spellCheck={false}
                     data-lpignore="true"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white focus:border-[#C5A059] outline-none"
                   />
                 </div>
 
@@ -461,7 +487,7 @@ export const CustomerProfileSection: React.FC = () => {
                   <button
                     type="submit"
                     disabled={passwordSaving}
-                    className="flex-1 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs py-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    className="flex-1 bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs py-2 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                   >
                     <span>{passwordSaving ? 'Updating...' : 'Update Password'}</span>
                   </button>
@@ -471,7 +497,7 @@ export const CustomerProfileSection: React.FC = () => {
                       setIsChangingPassword(false);
                       setPasswordError('');
                     }}
-                    className="px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                    className="px-3 py-2 text-xs font-bold text-neutral-400 hover:text-white hover:bg-[#222222] rounded-xl cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
@@ -483,39 +509,39 @@ export const CustomerProfileSection: React.FC = () => {
 
         {/* Right Column: Saved Delivery Addresses (2 cols) */}
         <div className="lg:col-span-2 space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="bg-[#121212] rounded-3xl border border-[#262626] p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#242424] pb-3">
               <div>
-                <h3 className="font-heading text-base font-bold text-slate-900 flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-cyan-600" />
+                <h3 className="font-heading text-base font-bold text-white flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-[#C5A059]" />
                   <span>Saved Delivery Addresses</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-neutral-400 mt-0.5">
                   Manage multiple addresses for doorstep bottled water dispatch & bulk event venues.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={handleOpenAddAddress}
-                className="flex items-center gap-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
+                className="flex items-center gap-1.5 bg-[#1a1a1a] hover:bg-[#222222] text-[#DFC283] border border-[#C5A059]/40 font-bold text-xs px-3.5 py-2 rounded-xl transition-all cursor-pointer"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-3.5 h-3.5 text-[#C5A059]" />
                 <span>Add Address</span>
               </button>
             </div>
 
             {/* Address List */}
             {(!customerProfile?.addresses || customerProfile.addresses.length === 0) ? (
-              <div className="py-12 text-center space-y-3 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
-                <MapPin className="w-8 h-8 text-slate-300 mx-auto" />
-                <p className="text-xs font-bold text-slate-600">No saved addresses yet</p>
-                <p className="text-[11px] text-slate-400 max-w-xs mx-auto">
+              <div className="py-12 text-center space-y-3 bg-[#161616] rounded-2xl border border-dashed border-[#2e2e2e]">
+                <MapPin className="w-8 h-8 text-neutral-600 mx-auto" />
+                <p className="text-xs font-bold text-neutral-300">No saved addresses yet</p>
+                <p className="text-[11px] text-neutral-500 max-w-xs mx-auto">
                   Add your home, office, or event venue address for one-click checkout.
                 </p>
                 <button
                   type="button"
                   onClick={handleOpenAddAddress}
-                  className="mt-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs px-4 py-2 rounded-xl cursor-pointer"
+                  className="mt-2 bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs px-4 py-2 rounded-xl cursor-pointer transition-colors"
                 >
                   Add Your First Address
                 </button>
@@ -527,54 +553,83 @@ export const CustomerProfileSection: React.FC = () => {
                     key={addr.id}
                     className={`p-4 rounded-2xl border transition-all flex flex-col justify-between relative ${
                       addr.isDefault
-                        ? 'border-cyan-300 bg-cyan-50/40 shadow-xs'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
+                        ? 'border-[#C5A059]/60 bg-[#171510] shadow-sm'
+                        : 'border-[#262626] bg-[#161616] hover:border-[#3a3a3a]'
                     }`}
                   >
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                        <span className="flex items-center gap-1.5 font-bold text-xs text-white">
                           {getAddressIcon(addr.label)}
                           <span>{addr.label}</span>
                         </span>
                         {addr.isDefault && (
-                          <span className="bg-cyan-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
+                          <span className="bg-gradient-to-r from-[#C5A059] to-[#D4AF37] text-black text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
                             <CheckCircle2 className="w-2.5 h-2.5" />
                             <span>Default</span>
                           </span>
                         )}
                       </div>
 
-                      <div className="text-xs space-y-1 text-slate-600">
-                        <p className="font-bold text-slate-800">{addr.name}</p>
+                      <div className="text-xs space-y-1 text-neutral-300">
+                        <p className="font-bold text-white">{addr.name}</p>
                         <p className="line-clamp-2 leading-relaxed">{addr.address}</p>
                         {addr.landmark && (
-                          <p className="text-[11px] text-slate-500 italic">Landmark: {addr.landmark}</p>
+                          <p className="text-[11px] text-neutral-400 italic">Landmark: {addr.landmark}</p>
                         )}
-                        <p className="font-medium text-slate-700">
+                        <p className="font-medium text-[#DFC283]">
                           {addr.city} - {addr.pincode}
                         </p>
-                        <p className="text-slate-500 flex items-center gap-1 mt-1">
-                          <Phone className="w-3 h-3 text-slate-400" />
+                        <p className="text-neutral-400 flex items-center gap-1 mt-1">
+                          <Phone className="w-3 h-3 text-neutral-500" />
                           <span>{addr.phone}</span>
                         </p>
+
+                        {/* Customer Address Map Pin Indicator */}
+                        <div className="pt-2 flex items-center justify-between border-t border-[#222222] mt-2">
+                          {addr.latitude && addr.longitude ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded-full">
+                              <MapPin className="w-3 h-3 text-emerald-400" />
+                              <span>Map Pin Pinned ({addr.latitude.toFixed(3)}, {addr.longitude.toFixed(3)})</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-neutral-400">
+                              <MapPin className="w-3 h-3 text-neutral-500" />
+                              <span>Postal Address</span>
+                            </span>
+                          )}
+
+                          <a
+                            href={createCustomerAddressMapUrl(
+                              `${addr.address}, ${addr.city} ${addr.pincode}`,
+                              addr.latitude && addr.longitude ? { lat: addr.latitude, lng: addr.longitude } : undefined
+                            )}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition-colors font-medium ml-auto"
+                            title="View address pin on Google Maps"
+                          >
+                            <span>Open Pin</span>
+                            <ExternalLink className="w-2.5 h-2.5" />
+                          </a>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                    <div className="mt-4 pt-3 border-t border-[#262626] flex items-center justify-between text-xs">
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
                           onClick={() => handleOpenEditAddress(addr)}
-                          className="font-bold text-cyan-600 hover:text-cyan-800 flex items-center gap-1 cursor-pointer"
+                          className="font-bold text-[#DFC283] hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
                         >
-                          <Edit2 className="w-3 h-3" />
+                          <Edit2 className="w-3 h-3 text-[#C5A059]" />
                           <span>Edit</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => deleteAddress(addr.id)}
-                          className="font-bold text-red-500 hover:text-red-700 flex items-center gap-1 cursor-pointer"
+                          className="font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer transition-colors"
                         >
                           <Trash2 className="w-3 h-3" />
                           <span>Delete</span>
@@ -585,7 +640,7 @@ export const CustomerProfileSection: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => saveAddress({ ...addr, isDefault: true })}
-                          className="text-[11px] font-semibold text-slate-500 hover:text-cyan-700 cursor-pointer"
+                          className="text-[11px] font-semibold text-neutral-400 hover:text-[#DFC283] cursor-pointer transition-colors"
                         >
                           Set as Default
                         </button>
@@ -598,21 +653,21 @@ export const CustomerProfileSection: React.FC = () => {
           </div>
 
           {/* Orders History & GST Invoices Card */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="bg-[#121212] rounded-3xl border border-[#262626] p-6 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#242424] pb-3">
               <div>
-                <h3 className="font-heading text-base font-bold text-slate-900 flex items-center gap-2">
-                  <Receipt className="w-4 h-4 text-cyan-600" />
+                <h3 className="font-heading text-base font-bold text-white flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-[#C5A059]" />
                   <span>My Orders & Official GST Invoices</span>
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="text-xs text-neutral-400 mt-0.5">
                   View tracking details, delivery statuses, and download compliant 18% GST tax invoices.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setCurrentSection('orders')}
-                className="text-xs font-bold text-cyan-600 hover:text-cyan-700 flex items-center gap-1 cursor-pointer"
+                className="text-xs font-bold text-[#DFC283] hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
               >
                 <span>Full Tracker</span>
                 <ArrowRight className="w-3 h-3" />
@@ -620,10 +675,10 @@ export const CustomerProfileSection: React.FC = () => {
             </div>
 
             {myOrders.length === 0 ? (
-              <div className="py-8 text-center space-y-2 bg-slate-50 rounded-2xl border border-dashed border-slate-300">
-                <Package className="w-7 h-7 text-slate-300 mx-auto" />
-                <p className="text-xs font-bold text-slate-600">No orders placed yet</p>
-                <p className="text-[11px] text-slate-400">
+              <div className="py-8 text-center space-y-2 bg-[#161616] rounded-2xl border border-dashed border-[#2a2a2a]">
+                <Package className="w-7 h-7 text-neutral-600 mx-auto" />
+                <p className="text-xs font-bold text-neutral-300">No orders placed yet</p>
+                <p className="text-[11px] text-neutral-500">
                   Your mineral water orders and GST invoices will appear here automatically.
                 </p>
               </div>
@@ -632,35 +687,35 @@ export const CustomerProfileSection: React.FC = () => {
                 {myOrders.slice(0, 5).map(order => (
                   <div
                     key={order.id}
-                    className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:border-cyan-300 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    className="p-4 rounded-2xl border border-[#262626] bg-[#161616] hover:bg-[#1a1a1a] hover:border-[#C5A059]/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-xs text-slate-900">{order.id}</span>
+                        <span className="font-mono font-bold text-xs text-white">{order.id}</span>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                          order.status === 'Delivered' ? 'bg-emerald-100 text-emerald-800' :
-                          order.status === 'Dispatched' ? 'bg-purple-100 text-purple-800' :
-                          'bg-amber-100 text-amber-800'
+                          order.status === 'Delivered' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' :
+                          order.status === 'Dispatched' ? 'bg-purple-950 text-purple-300 border border-purple-800/50' :
+                          'bg-amber-950 text-amber-300 border border-amber-800/50'
                         }`}>
                           {order.status}
                         </span>
                         {order.invoiceNumber && (
-                          <span className="text-[10px] bg-cyan-100 text-cyan-800 font-mono font-bold px-1.5 py-0.2 rounded">
+                          <span className="text-[10px] bg-[#C5A059]/15 text-[#DFC283] border border-[#C5A059]/30 font-mono font-bold px-1.5 py-0.2 rounded">
                             {order.invoiceNumber}
                           </span>
                         )}
                       </div>
 
-                      <p className="text-xs text-slate-600">
+                      <p className="text-xs text-neutral-300">
                         {order.items.map(i => `${i.product.name} (${i.product.size}) × ${i.quantity}`).join(', ')}
                       </p>
 
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                      <div className="flex items-center gap-3 text-[11px] text-neutral-400">
                         <span className="flex items-center gap-1">
-                          <Clock className="w-3 h-3" />
+                          <Clock className="w-3 h-3 text-[#C5A059]" />
                           <span>{new Date(order.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                         </span>
-                        <span className="font-bold text-slate-700">₹{order.totalAmount} ({order.paymentMethod})</span>
+                        <span className="font-bold text-[#DFC283]">₹{order.totalAmount} ({order.paymentMethod})</span>
                       </div>
                     </div>
 
@@ -669,10 +724,10 @@ export const CustomerProfileSection: React.FC = () => {
                         type="button"
                         id={`btn-profile-print-invoice-${order.id}`}
                         onClick={() => openInvoiceForOrder(order, true)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black text-xs font-black shadow-2xs transition-colors cursor-pointer"
                         title="Print Official GST Tax Invoice"
                       >
-                        <Printer className="w-3.5 h-3.5 text-white" />
+                        <Printer className="w-3.5 h-3.5 text-black" />
                         <span>Print</span>
                       </button>
 
@@ -680,10 +735,10 @@ export const CustomerProfileSection: React.FC = () => {
                         type="button"
                         id={`btn-profile-view-invoice-${order.id}`}
                         onClick={() => openInvoiceForOrder(order, false)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#222222] hover:bg-[#2c2c2c] border border-[#383838] text-white text-xs font-bold shadow-2xs transition-colors cursor-pointer"
                         title="View & Print GST Invoice"
                       >
-                        <Receipt className="w-3.5 h-3.5 text-cyan-400" />
+                        <Receipt className="w-3.5 h-3.5 text-[#C5A059]" />
                         <span>View</span>
                       </button>
 
@@ -693,7 +748,7 @@ export const CustomerProfileSection: React.FC = () => {
                           setTrackOrderId(order.id);
                           setCurrentSection('orders');
                         }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition-colors cursor-pointer"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-[#333333] hover:bg-[#222222] text-neutral-300 text-xs font-semibold transition-colors cursor-pointer"
                       >
                         <span>Track</span>
                       </button>
@@ -708,32 +763,32 @@ export const CustomerProfileSection: React.FC = () => {
 
       {/* Modal: Add / Edit Address */}
       {isAddressModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl border border-slate-200 animate-in zoom-in-95">
-            <div className="bg-slate-900 px-6 py-4 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#141414] rounded-3xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-[#2a2a2a] animate-in zoom-in-95">
+            <div className="bg-[#101010] px-6 py-4 text-white flex items-center justify-between border-b border-[#242424] shrink-0">
               <h3 className="font-heading font-bold text-base flex items-center gap-2">
-                <MapPin className="w-4 h-4 text-cyan-400" />
+                <MapPin className="w-4 h-4 text-[#C5A059]" />
                 <span>{editingAddressId ? 'Edit Delivery Address' : 'Add New Delivery Address'}</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setIsAddressModalOpen(false)}
-                className="p-1 rounded-full text-slate-400 hover:text-white"
+                className="p-1 rounded-full text-neutral-400 hover:text-white cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveAddressSubmit} className="p-6 space-y-4">
+            <form onSubmit={handleSaveAddressSubmit} className="p-6 space-y-4 overflow-y-auto">
               {addressError && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start gap-2">
+                <div className="p-3 bg-rose-950/40 border border-rose-800/40 rounded-xl text-xs text-rose-300 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                   <span>{addressError}</span>
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">Address Type</label>
+                <label className="block text-xs font-bold text-neutral-300 mb-1.5">Address Type</label>
                 <div className="grid grid-cols-4 gap-2 text-xs font-bold">
                   {(['Home', 'Office', 'Event Venue', 'Warehouse'] as const).map((type) => (
                     <button
@@ -742,8 +797,8 @@ export const CustomerProfileSection: React.FC = () => {
                       onClick={() => setAddressLabel(type)}
                       className={`py-2 rounded-xl border text-center transition-all cursor-pointer ${
                         addressLabel === type
-                          ? 'bg-cyan-50 border-cyan-600 text-cyan-700'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                          ? 'bg-[#C5A059]/15 border-[#C5A059] text-[#DFC283] font-black'
+                          : 'bg-[#181818] border-[#2e2e2e] text-neutral-400 hover:bg-[#202020] hover:text-white'
                       }`}
                     >
                       {type}
@@ -754,8 +809,8 @@ export const CustomerProfileSection: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Recipient / Contact Name <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">
+                    Recipient / Contact Name <span className="text-[#C5A059]">*</span>
                   </label>
                   <input
                     type="text"
@@ -763,12 +818,12 @@ export const CustomerProfileSection: React.FC = () => {
                     value={addressRecipientName}
                     onChange={e => setAddressRecipientName(e.target.value)}
                     placeholder="e.g. Rahul Sharma"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white placeholder:text-neutral-500 focus:border-[#C5A059] outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Mobile Number <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">
+                    Mobile Number <span className="text-[#C5A059]">*</span>
                   </label>
                   <input
                     type="tel"
@@ -776,14 +831,14 @@ export const CustomerProfileSection: React.FC = () => {
                     value={addressPhone}
                     onChange={e => setAddressPhone(e.target.value)}
                     placeholder="10-digit mobile"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white placeholder:text-neutral-500 focus:border-[#C5A059] outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Full Street Address / Building / Flat <span className="text-red-500">*</span>
+                <label className="block text-xs font-bold text-neutral-300 mb-1">
+                  Full Street Address / Building / Flat <span className="text-[#C5A059]">*</span>
                 </label>
                 <textarea
                   required
@@ -791,36 +846,36 @@ export const CustomerProfileSection: React.FC = () => {
                   value={addressStreet}
                   onChange={e => setAddressStreet(e.target.value)}
                   placeholder="e.g. Flat 4B, Blue Bell Residency, Park Street"
-                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                  className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white placeholder:text-neutral-500 focus:border-[#C5A059] outline-none"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Landmark</label>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">Landmark</label>
                   <input
                     type="text"
                     value={addressLandmark}
                     onChange={e => setAddressLandmark(e.target.value)}
                     placeholder="Near Metro Station"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white placeholder:text-neutral-500 focus:border-[#C5A059] outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    City <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">
+                    City <span className="text-[#C5A059]">*</span>
                   </label>
                   <input
                     type="text"
                     required
                     value={addressCity}
                     onChange={e => setAddressCity(e.target.value)}
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white focus:border-[#C5A059] outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">
-                    Pincode <span className="text-red-500">*</span>
+                  <label className="block text-xs font-bold text-neutral-300 mb-1">
+                    Pincode <span className="text-[#C5A059]">*</span>
                   </label>
                   <input
                     type="text"
@@ -829,9 +884,38 @@ export const CustomerProfileSection: React.FC = () => {
                     value={addressPincode}
                     onChange={e => setAddressPincode(e.target.value)}
                     placeholder="e.g. 700001"
-                    className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:border-cyan-600 outline-none"
+                    className="w-full px-3.5 py-2 text-sm bg-[#181818] border border-[#333333] rounded-xl text-white placeholder:text-neutral-500 focus:border-[#C5A059] outline-none"
                   />
                 </div>
+              </div>
+
+              {/* Customer Address Google Maps Pinning */}
+              <div className="pt-2 border-t border-[#262626]">
+                <LocationPickerMap
+                  customTitle="Pin Exact Delivery Point / House"
+                  addressTextToPin={[addressStreet, addressLandmark, addressCity, addressPincode].filter(Boolean).join(', ')}
+                  initialCoords={
+                    addressLatitude && addressLongitude
+                      ? { lat: addressLatitude, lng: addressLongitude }
+                      : null
+                  }
+                  gateNote={addressGateNote}
+                  onGateNoteChange={setAddressGateNote}
+                  onLocationChange={loc => {
+                    setAddressLatitude(loc.lat);
+                    setAddressLongitude(loc.lng);
+                    setAddressAccuracy(loc.accuracy);
+                    if (loc.navigationUrl) setAddressGoogleMapsUrl(loc.navigationUrl);
+                  }}
+                  onAddressAutofill={autofill => {
+                    if (autofill.address && (!addressStreet || addressStreet.length < 5)) {
+                      setAddressStreet(autofill.address);
+                    }
+                    if (autofill.city) setAddressCity(autofill.city);
+                    if (autofill.pincode) setAddressPincode(autofill.pincode);
+                    if (autofill.landmark && !addressLandmark) setAddressLandmark(autofill.landmark);
+                  }}
+                />
               </div>
 
               <div className="flex items-center gap-2 pt-1">
@@ -840,24 +924,24 @@ export const CustomerProfileSection: React.FC = () => {
                   id="defaultAddressCheckbox"
                   checked={addressIsDefault}
                   onChange={e => setAddressIsDefault(e.target.checked)}
-                  className="rounded border-slate-300 text-cyan-600 focus:ring-cyan-500 h-4 w-4"
+                  className="rounded border-[#333333] bg-[#181818] text-[#C5A059] focus:ring-[#C5A059] h-4 w-4"
                 />
-                <label htmlFor="defaultAddressCheckbox" className="text-xs font-medium text-slate-700 cursor-pointer">
+                <label htmlFor="defaultAddressCheckbox" className="text-xs font-medium text-neutral-300 cursor-pointer">
                   Set as default delivery address
                 </label>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#242424]">
                 <button
                   type="button"
                   onClick={() => setIsAddressModalOpen(false)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                  className="px-4 py-2 text-xs font-bold text-neutral-400 hover:text-white hover:bg-[#222222] rounded-xl cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md cursor-pointer"
+                  className="bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black font-black text-xs px-5 py-2.5 rounded-xl shadow-md cursor-pointer transition-colors"
                 >
                   Save Address
                 </button>

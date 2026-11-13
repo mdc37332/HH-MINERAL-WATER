@@ -1,7 +1,8 @@
 import React from 'react';
 import { Order, AdminSettings } from '../../types';
 import { DEFAULT_ADMIN_SETTINGS } from '../../data/initialProducts';
-import { Printer, CheckCircle2, Package, Truck, Phone, MapPin, Building2 } from 'lucide-react';
+import { Printer, CheckCircle2, Package, Truck, Phone, MapPin, Building2, ExternalLink } from 'lucide-react';
+import { openDeliveryChallanPrintTab } from '../../lib/invoicePrintHelper';
 
 interface DeliveryChallanModalProps {
   order: Order;
@@ -16,17 +17,35 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
   settings,
   onClose
 }) => {
+  const currentSettings = propAdminSettings || settings || DEFAULT_ADMIN_SETTINGS || ({} as Partial<AdminSettings>);
+
+  const safeItems: any[] = Array.isArray(order.items)
+    ? order.items
+    : typeof order.items === 'string'
+    ? (() => { try { return JSON.parse(order.items); } catch { return []; } })()
+    : [];
+
+  const totalBottles = safeItems.reduce((acc, item) => acc + (Number(item?.quantity) || 0), 0);
+
   const handlePrint = () => {
-    window.print();
+    const isEmbedded = typeof window !== 'undefined' && window.self !== window.top;
+    if (isEmbedded) {
+      try { window.print(); } catch {}
+      openDeliveryChallanPrintTab(order, currentSettings);
+    } else {
+      window.print();
+    }
   };
 
-  const currentSettings = propAdminSettings || settings || DEFAULT_ADMIN_SETTINGS || ({} as Partial<AdminSettings>);
-  const totalBottles = (order.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0);
+  const handleOpenPrintTab = () => {
+    openDeliveryChallanPrintTab(order, currentSettings);
+  };
 
   const consignorName = currentSettings.tradeName || currentSettings.legalBusinessName || 'HH MINERAL WATER';
   const consignorAddress = currentSettings.businessAddress || 'Plot No. 42, Water Treatment Plant & Bottling Unit, Industrial Estate';
   const consignorGstin = currentSettings.gstin || '19AAACH7890C1Z5';
   const consignorPhone = currentSettings.ownerWhatsApp || currentSettings.helplinePhone || '8017341130';
+  const displayChallanNo = `CH-${(order.id || '').replace('HH-ORD-', '')}`;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto print:p-0 print:bg-white print:static">
@@ -44,6 +63,7 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
             </div>
           </div>
           <button
+            id="btn-close-delivery-challan-modal-top"
             onClick={onClose}
             className="text-slate-400 hover:text-slate-700 text-xs font-bold cursor-pointer print:hidden"
           >
@@ -56,7 +76,7 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
           <div className="flex items-center justify-between pb-3 border-b border-slate-200">
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase">DISPATCH CHALLAN #</span>
-              <strong className="text-sm font-mono text-slate-900">CH-{order.id.replace('HH-ORD-', '')}</strong>
+              <strong className="text-sm font-mono text-slate-900">{displayChallanNo}</strong>
             </div>
             <div className="text-right">
               <span className="text-[10px] font-bold text-slate-400 block uppercase">DISPATCH DATE</span>
@@ -94,18 +114,25 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {order.items.map((item, idx) => (
-                  <tr key={idx}>
-                    <td className="p-2.5 font-bold text-slate-900">{item.product.name}</td>
-                    <td className="p-2.5 font-mono">{item.product.size}</td>
-                    <td className="p-2.5 text-center">
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-800">
-                        {item.isCustomDesign ? 'Custom Gold Foil Label' : 'Standard HH Label'}
-                      </span>
-                    </td>
-                    <td className="p-2.5 text-right font-mono font-bold text-slate-900">{item.quantity} Units</td>
-                  </tr>
-                ))}
+                {safeItems.map((item, idx) => {
+                  const prodName = item?.product?.name || item?.productName || item?.name || 'HH Packaged Drinking Water';
+                  const prodSize = item?.product?.size || item?.size || '500ml';
+                  const qty = Number(item?.quantity) || 1;
+                  const isCustom = Boolean(item?.isCustomDesign || item?.customDesignDetails);
+
+                  return (
+                    <tr key={idx}>
+                      <td className="p-2.5 font-bold text-slate-900">{prodName}</td>
+                      <td className="p-2.5 font-mono">{prodSize}</td>
+                      <td className="p-2.5 text-center">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-800">
+                          {isCustom ? 'Custom Gold Foil Label' : 'Standard HH Label'}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-right font-mono font-bold text-slate-900">{qty} Units</td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
                 <tr>
@@ -119,11 +146,11 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
           <div className="grid grid-cols-2 gap-4 p-3 bg-white rounded-xl border border-slate-200 font-mono text-[11px]">
             <div>
               <span className="text-slate-500 text-[10px] block">PAYMENT MODE & STATUS</span>
-              <strong>{order.paymentMethod} • {order.paymentStatus}</strong>
+              <strong>{order.paymentMethod || 'Prepaid'} • {order.paymentStatus || 'Confirmed'}</strong>
             </div>
             <div className="text-right">
               <span className="text-slate-500 text-[10px] block">TOTAL ORDER INVOICE AMOUNT</span>
-              <strong className="text-cyan-900 text-sm">₹{order.totalAmount}</strong>
+              <strong className="text-cyan-900 text-sm">₹{order.totalAmount || 0}</strong>
             </div>
           </div>
 
@@ -144,14 +171,25 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
 
         <div className="flex items-center justify-end gap-3 pt-2 print:hidden">
           <button
+            id="btn-close-delivery-challan-modal"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold cursor-pointer"
+            className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-bold cursor-pointer hover:bg-slate-50 transition-colors"
           >
             Close
           </button>
           <button
+            id="btn-open-challan-tab"
+            onClick={handleOpenPrintTab}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors cursor-pointer"
+            title="Open printable challan in new tab"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            <span>Open in Tab</span>
+          </button>
+          <button
+            id="btn-print-delivery-challan-action"
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md cursor-pointer"
+            className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md cursor-pointer transition-colors"
           >
             <Printer className="w-4 h-4" />
             <span>Print Delivery Challan</span>

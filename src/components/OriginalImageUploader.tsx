@@ -1,4 +1,6 @@
 import React, { useRef, useState } from 'react';
+import { uploadVideoFile, parseVideoInput, formatFileSize, extractVideoThumbnail } from '../lib/videoUtils';
+import { UniversalVideoPlayer } from './UniversalVideoPlayer';
 import {
   UploadCloud,
   Image as ImageIcon,
@@ -42,7 +44,7 @@ interface Props {
 export const OriginalImageUploader: React.FC<Props> = ({
   images,
   onImagesChange,
-  maxFiles = 4,
+  maxFiles = Infinity,
   labelPositionDefault = 'front',
   allowMultiple = true,
   onLinkVideoToQr
@@ -125,51 +127,54 @@ export const OriginalImageUploader: React.FC<Props> = ({
     });
   };
 
-  const processFile = async (file: File) => {
-    const isImage = file.type.startsWith('image/');
-    const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|ogg)$/i.test(file.name);
-
-    if (!isImage && !isVideo) {
-      setErrorMsg('Please upload a valid image (PNG, JPG, WEBP, SVG) or video file (MP4, WEBM, MOV).');
-      return;
-    }
-
-    if (isImage && file.size > 20 * 1024 * 1024) {
-      setErrorMsg('Image file size must be below 20MB.');
-      return;
-    }
-
-    if (isVideo && file.size > 50 * 1024 * 1024) {
-      setErrorMsg('Video file size exceeds 50MB. For larger videos, please enter a cloud or streaming URL.');
-      return;
-    }
-
-    if (images.length >= maxFiles) {
-      setErrorMsg(`Maximum ${maxFiles} original media items allowed.`);
-      return;
-    }
-
+  const processFiles = async (files: File[]) => {
+    if (files.length === 0) return;
     setErrorMsg(null);
     setIsProcessing(true);
-    setProcessingStatus(isVideo ? 'Reading and generating video preview...' : 'Reading image file...');
+    setProcessingStatus(`Processing ${files.length} file${files.length > 1 ? 's' : ''}...`);
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
+    const newMediaItems: UploadedImageData[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const isImage = file.type.startsWith('image/');
+      const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|ogg|avi|mkv)$/i.test(file.name);
+
+      if (!isImage && !isVideo) continue;
+
+      setProcessingStatus(`Uploading ${i + 1}/${files.length}: ${file.name} (${formatFileSize(file.size)})`);
+
       try {
-        const base64Url = e.target?.result as string;
+        let mediaUrl = '';
         let durationSec = 0;
         let thumbnailUrl = '';
 
         if (isVideo) {
-          setProcessingStatus('Extracting video duration and poster frame...');
-          const meta = await extractVideoMetadata(base64Url);
-          durationSec = meta.duration;
-          thumbnailUrl = meta.thumbnail;
+          // For video files of ANY size (KB, MB, GB), upload via streaming engine
+          const uploadRes = await uploadVideoFile(file, (percent) => {
+            setProcessingStatus(`Uploading ${file.name} (${formatFileSize(file.size)}): ${percent}%`);
+          });
+          mediaUrl = uploadRes.url;
+          try {
+            const meta = await extractVideoThumbnail(mediaUrl);
+            durationSec = meta.duration;
+            thumbnailUrl = meta.thumbnail;
+          } catch {
+            // video meta fallback
+          }
+        } else {
+          // For image files
+          mediaUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
         }
 
-        const newMedia: UploadedImageData = {
-          id: `${isVideo ? 'vid' : 'img'}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-          url: base64Url,
+        newMediaItems.push({
+          id: `${isVideo ? 'vid' : 'img'}-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+          url: mediaUrl,
           name: file.name,
           sizeKb: Math.round(file.size / 1024),
           type: file.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
@@ -177,28 +182,24 @@ export const OriginalImageUploader: React.FC<Props> = ({
           durationSec: durationSec > 0 ? durationSec : undefined,
           thumbnailUrl: thumbnailUrl || undefined,
           labelPosition: (labelPositionDefault as 'front' | 'back' | 'wrap') || 'front'
-        };
-
-        if (!allowMultiple) {
-          onImagesChange([newMedia]);
-        } else {
-          onImagesChange([...images, newMedia]);
-        }
+        });
       } catch (err) {
-        setErrorMsg('Failed to process uploaded file. Please try again.');
-      } finally {
-        setIsProcessing(false);
-        setProcessingStatus('');
+        console.warn('Failed to process file:', file.name, err);
       }
-    };
+    }
 
-    reader.onerror = () => {
-      setErrorMsg('Error reading file. Please check file permissions.');
-      setIsProcessing(false);
-      setProcessingStatus('');
-    };
+    if (newMediaItems.length > 0) {
+      if (!allowMultiple) {
+        onImagesChange([newMediaItems[0]]);
+      } else {
+        onImagesChange([...images, ...newMediaItems]);
+      }
+    } else {
+      setErrorMsg('No valid image or video files could be processed.');
+    }
 
-    reader.readAsDataURL(file);
+    setIsProcessing(false);
+    setProcessingStatus('');
   };
 
   const handleAddVideoByUrl = async () => {
@@ -207,7 +208,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
       return;
     }
 
-    if (images.length >= maxFiles) {
+    if (images.length >= maxFiles && maxFiles !== Infinity) {
       setErrorMsg(`Maximum ${maxFiles} original media items allowed.`);
       return;
     }
@@ -217,9 +218,11 @@ export const OriginalImageUploader: React.FC<Props> = ({
     setProcessingStatus('Analyzing video stream metadata...');
 
     try {
-      const url = videoUrlInput.trim();
-      const meta = await extractVideoMetadata(url);
-      const name = videoNameInput.trim() || `Video Clip (${new URL(url).hostname || 'Online Stream'})`;
+      const rawUrl = videoUrlInput.trim();
+      const parsed = parseVideoInput(rawUrl);
+      const url = parsed.streamUrl || parsed.rawUrl;
+      const meta = await extractVideoThumbnail(url);
+      const name = videoNameInput.trim() || parsed.title || `Video Clip (${parsed.type.toUpperCase()})`;
 
       const newMedia: UploadedImageData = {
         id: `vid-url-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -229,7 +232,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
         type: 'video/mp4',
         mediaType: 'video',
         durationSec: meta.duration > 0 ? meta.duration : undefined,
-        thumbnailUrl: meta.thumbnail || undefined,
+        thumbnailUrl: meta.thumbnail || parsed.thumbnailUrl || undefined,
         labelPosition: 'front'
       };
 
@@ -242,8 +245,27 @@ export const OriginalImageUploader: React.FC<Props> = ({
       setVideoUrlInput('');
       setVideoNameInput('');
       setActiveTab('all');
-    } catch {
-      setErrorMsg('Could not verify video URL. Make sure it is directly accessible.');
+    } catch (err) {
+      console.warn('Video URL parse notice:', err);
+      // Even if metadata extraction was partial, still attach the parsed video URL!
+      const parsed = parseVideoInput(videoUrlInput.trim());
+      const newMedia: UploadedImageData = {
+        id: `vid-url-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        url: parsed.streamUrl || parsed.rawUrl,
+        name: videoNameInput.trim() || parsed.title || 'Online Video Stream',
+        sizeKb: 1024,
+        type: 'video/mp4',
+        mediaType: 'video',
+        labelPosition: 'front'
+      };
+      if (!allowMultiple) {
+        onImagesChange([newMedia]);
+      } else {
+        onImagesChange([...images, newMedia]);
+      }
+      setVideoUrlInput('');
+      setVideoNameInput('');
+      setActiveTab('all');
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
@@ -252,7 +274,8 @@ export const OriginalImageUploader: React.FC<Props> = ({
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      Array.from(e.target.files).forEach((file: File) => processFile(file));
+      const files: File[] = Array.from(e.target.files) as File[];
+      processFiles(files);
       e.target.value = '';
     }
   };
@@ -272,7 +295,8 @@ export const OriginalImageUploader: React.FC<Props> = ({
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      Array.from(e.dataTransfer.files).forEach((file: File) => processFile(file));
+      const files: File[] = Array.from(e.dataTransfer.files) as File[];
+      processFiles(files);
     }
   };
 
@@ -321,14 +345,14 @@ export const OriginalImageUploader: React.FC<Props> = ({
       />
 
       {/* Upload Action Switcher Tabs & Quick Buttons */}
-      <div className="bg-slate-100/90 p-1.5 rounded-2xl flex flex-wrap items-center gap-1.5 border border-slate-200/80">
+      <div className="bg-[#141414] p-1.5 rounded-2xl flex flex-wrap items-center gap-1.5 border border-[#262626]">
         <button
           type="button"
           onClick={() => imageInputRef.current?.click()}
           disabled={images.length >= maxFiles}
-          className="flex-1 min-w-[130px] flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-white hover:bg-cyan-50 text-slate-800 hover:text-cyan-700 text-xs font-bold transition-all shadow-xs border border-slate-200/60 cursor-pointer disabled:opacity-50"
+          className="flex-1 min-w-[130px] flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-[#1c1913] hover:bg-[#252015] text-[#DFC283] hover:text-[#f3dfa9] text-xs font-bold transition-all shadow-xs border border-[#C5A059]/30 cursor-pointer disabled:opacity-50"
         >
-          <ImageIcon className="w-4 h-4 text-cyan-600" />
+          <ImageIcon className="w-4 h-4 text-[#C5A059]" />
           <span>+ Upload Image / Logo</span>
         </button>
 
@@ -336,9 +360,9 @@ export const OriginalImageUploader: React.FC<Props> = ({
           type="button"
           onClick={() => videoInputRef.current?.click()}
           disabled={images.length >= maxFiles}
-          className="flex-1 min-w-[130px] flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-xs cursor-pointer disabled:opacity-50"
+          className="flex-1 min-w-[130px] flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-[#1c1c1c] hover:bg-[#252525] text-white text-xs font-bold transition-all shadow-xs border border-[#333333] cursor-pointer disabled:opacity-50"
         >
-          <Video className="w-4 h-4 text-purple-200" />
+          <Video className="w-4 h-4 text-[#C5A059]" />
           <span>+ Upload Video Clip</span>
         </button>
 
@@ -348,8 +372,8 @@ export const OriginalImageUploader: React.FC<Props> = ({
           disabled={images.length >= maxFiles}
           className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
             activeTab === 'video_url'
-              ? 'bg-purple-100 border-purple-300 text-purple-800'
-              : 'bg-white hover:bg-slate-50 border-slate-200/60 text-slate-700'
+              ? 'bg-[#2a2416] border-[#C5A059] text-[#DFC283]'
+              : 'bg-[#181818] hover:bg-[#222222] border-[#333333] text-neutral-300'
           }`}
         >
           <LinkIcon className="w-3.5 h-3.5" />
@@ -359,13 +383,13 @@ export const OriginalImageUploader: React.FC<Props> = ({
 
       {/* Video URL Input Dropdown Panel */}
       {activeTab === 'video_url' && images.length < maxFiles && (
-        <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-2xl space-y-3 animate-in fade-in">
+        <div className="p-4 bg-[#161616] border border-[#2e2e2e] rounded-2xl space-y-3 animate-in fade-in">
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-bold text-purple-950 flex items-center gap-1.5">
-              <Film className="w-4 h-4 text-purple-700" />
+            <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+              <Film className="w-4 h-4 text-[#C5A059]" />
               <span>Attach Video via Streaming / Cloud Link</span>
             </h4>
-            <span className="text-[10px] text-purple-700 font-semibold">Supports Direct MP4, WebM, Cloudinary, AWS S3</span>
+            <span className="text-[10px] text-neutral-400 font-semibold">Supports Direct MP4, WebM, Cloudinary, AWS S3</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input
@@ -373,7 +397,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
               placeholder="e.g. Wedding Highlight Reel / Brand Story"
               value={videoNameInput}
               onChange={e => setVideoNameInput(e.target.value)}
-              className="px-3 py-2 bg-white rounded-xl border border-purple-200 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="px-3 py-2 bg-[#1c1c1c] rounded-xl border border-[#333333] text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#C5A059]"
             />
             <div className="flex gap-2">
               <input
@@ -381,13 +405,13 @@ export const OriginalImageUploader: React.FC<Props> = ({
                 placeholder="https://example.com/video.mp4"
                 value={videoUrlInput}
                 onChange={e => setVideoUrlInput(e.target.value)}
-                className="flex-1 px-3 py-2 bg-white rounded-xl border border-purple-200 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="flex-1 px-3 py-2 bg-[#1c1c1c] rounded-xl border border-[#333333] text-xs font-mono text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#C5A059]"
               />
               <button
                 type="button"
                 onClick={handleAddVideoByUrl}
                 disabled={!videoUrlInput.trim() || isProcessing}
-                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-xs cursor-pointer disabled:opacity-50 shrink-0"
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black font-black text-xs shadow-xs cursor-pointer disabled:opacity-50 shrink-0"
               >
                 Add Video
               </button>
@@ -405,26 +429,26 @@ export const OriginalImageUploader: React.FC<Props> = ({
           onDrop={handleDrop}
           className={`relative border-2 border-dashed rounded-2xl p-6 sm:p-7 text-center transition-all duration-200 ${
             dragActive
-              ? 'border-purple-500 bg-purple-50/80 scale-[0.99]'
-              : 'border-slate-300 hover:border-cyan-400 bg-slate-50/70 hover:bg-slate-50'
+              ? 'border-[#C5A059] bg-[#1a1710] scale-[0.99]'
+              : 'border-[#2e2e2e] hover:border-[#C5A059]/60 bg-[#121212] hover:bg-[#151515]'
           }`}
         >
           <div className="flex flex-col items-center justify-center space-y-3">
             <div className="flex items-center gap-2">
-              <div className="w-12 h-12 rounded-2xl bg-cyan-100 text-cyan-700 flex items-center justify-center shadow-inner">
+              <div className="w-12 h-12 rounded-2xl bg-[#1c1913] border border-[#C5A059]/30 text-[#C5A059] flex items-center justify-center shadow-inner">
                 <UploadCloud className="w-6 h-6" />
               </div>
-              <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center shadow-inner">
+              <div className="w-12 h-12 rounded-2xl bg-[#181818] border border-[#333333] text-[#DFC283] flex items-center justify-center shadow-inner">
                 <Video className="w-6 h-6" />
               </div>
             </div>
 
             <div>
-              <p className="text-sm font-semibold text-slate-800">
-                Drag & drop your <span className="text-cyan-600 font-bold">Image / Logo</span> or{' '}
-                <span className="text-purple-600 font-bold">Video Clip</span> here
+              <p className="text-sm font-semibold text-white">
+                Drag & drop your <span className="text-[#DFC283] font-bold">Image / Logo</span> or{' '}
+                <span className="text-[#DFC283] font-bold">Video Clip</span> here
               </p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-neutral-400 mt-1">
                 Images (PNG, JPG, SVG, WEBP up to 20MB) • Videos (MP4, WEBM, MOV up to 50MB)
               </p>
             </div>
@@ -433,7 +457,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => imageInputRef.current?.click()}
-                className="px-3.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-semibold text-cyan-700 hover:bg-cyan-50 shadow-2xs cursor-pointer flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-full bg-[#1c1913] border border-[#C5A059]/40 text-xs font-semibold text-[#DFC283] hover:bg-[#252015] shadow-2xs cursor-pointer flex items-center gap-1.5"
               >
                 <ImageIcon className="w-3.5 h-3.5" />
                 <span>Browse Images</span>
@@ -441,15 +465,15 @@ export const OriginalImageUploader: React.FC<Props> = ({
               <button
                 type="button"
                 onClick={() => videoInputRef.current?.click()}
-                className="px-3.5 py-1.5 rounded-full bg-white border border-slate-200 text-xs font-semibold text-purple-700 hover:bg-purple-50 shadow-2xs cursor-pointer flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-full bg-[#181818] border border-[#333333] text-xs font-semibold text-neutral-200 hover:text-white hover:bg-[#242424] shadow-2xs cursor-pointer flex items-center gap-1.5"
               >
-                <Video className="w-3.5 h-3.5" />
+                <Video className="w-3.5 h-3.5 text-[#C5A059]" />
                 <span>Browse Videos</span>
               </button>
             </div>
 
-            <div className="inline-flex items-center gap-2 px-3 py-1 bg-white rounded-full border border-slate-200 text-[11px] font-medium text-slate-600 shadow-2xs">
-              <Sparkles className="w-3 h-3 text-cyan-500" />
+            <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#161616] rounded-full border border-[#2a2a2a] text-[11px] font-medium text-neutral-300 shadow-2xs">
+              <Sparkles className="w-3 h-3 text-[#C5A059]" />
               <span>Full Print & 1080p Video Master Stored with Order</span>
             </div>
           </div>
@@ -458,17 +482,17 @@ export const OriginalImageUploader: React.FC<Props> = ({
 
       {/* Processing Loader */}
       {isProcessing && (
-        <div className="p-3 bg-cyan-50 border border-cyan-200 rounded-xl flex items-center gap-3 text-cyan-900 text-xs animate-pulse">
-          <RefreshCw className="w-4 h-4 animate-spin text-cyan-600 shrink-0" />
+        <div className="p-3 bg-[#1c1913] border border-[#C5A059]/40 rounded-xl flex items-center gap-3 text-[#DFC283] text-xs animate-pulse">
+          <RefreshCw className="w-4 h-4 animate-spin text-[#C5A059] shrink-0" />
           <span className="font-semibold">{processingStatus}</span>
         </div>
       )}
 
       {/* Error Notice */}
       {errorMsg && (
-        <p className="text-xs text-rose-600 font-medium bg-rose-50 border border-rose-200 p-2.5 rounded-lg flex items-center justify-between">
+        <p className="text-xs text-rose-400 font-medium bg-rose-950/40 border border-rose-800/50 p-2.5 rounded-lg flex items-center justify-between">
           <span>{errorMsg}</span>
-          <button type="button" onClick={() => setErrorMsg(null)} className="text-rose-500 hover:text-rose-800">
+          <button type="button" onClick={() => setErrorMsg(null)} className="text-rose-400 hover:text-rose-200">
             <X className="w-4 h-4" />
           </button>
         </p>
@@ -478,29 +502,29 @@ export const OriginalImageUploader: React.FC<Props> = ({
       {images.length > 0 && (
         <div className="space-y-3 pt-1">
           <div className="flex items-center justify-between">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-emerald-500" />
+            <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-300 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-emerald-400" />
               <span>
-                Attached Media Assets ({images.length}/{maxFiles})
+                Attached Media Assets ({images.length} {maxFiles === Infinity || maxFiles >= 999 ? '• Unlimited' : `/${maxFiles}`})
               </span>
-              <span className="text-[10px] font-semibold text-slate-400 normal-case">
+              <span className="text-[10px] font-semibold text-neutral-500 normal-case">
                 • {imageCount} Image{imageCount !== 1 ? 's' : ''}, {videoCount} Video{videoCount !== 1 ? 's' : ''}
               </span>
             </h4>
-            {images.length < maxFiles && (
+            {(maxFiles === Infinity || images.length < maxFiles) && (
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => imageInputRef.current?.click()}
-                  className="text-xs font-bold text-cyan-600 hover:text-cyan-800 cursor-pointer"
+                  className="text-xs font-bold text-[#DFC283] hover:text-white cursor-pointer"
                 >
-                  + Add Image
+                  + Add More Images
                 </button>
-                <span className="text-slate-300">•</span>
+                <span className="text-neutral-600">•</span>
                 <button
                   type="button"
                   onClick={() => videoInputRef.current?.click()}
-                  className="text-xs font-bold text-purple-600 hover:text-purple-800 cursor-pointer"
+                  className="text-xs font-bold text-neutral-300 hover:text-white cursor-pointer"
                 >
                   + Add Video
                 </button>
@@ -508,19 +532,18 @@ export const OriginalImageUploader: React.FC<Props> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Media Items Displayed Vertically */}
+          <div className="flex flex-col gap-2.5 max-h-[540px] overflow-y-auto pr-1 scrollbar-thin">
             {images.map((item) => {
               const isVideo = item.mediaType === 'video' || item.type.startsWith('video/');
 
               return (
                 <div
                   key={item.id}
-                  className={`group relative bg-white border rounded-2xl p-3 shadow-xs hover:shadow-md transition-all flex items-center gap-3.5 ${
-                    isVideo ? 'border-purple-200 hover:border-purple-400' : 'border-slate-200 hover:border-cyan-400'
-                  }`}
+                  className="group relative bg-[#161616] border border-[#282828] hover:border-[#C5A059]/60 rounded-2xl p-3 shadow-xs hover:shadow-md transition-all flex items-center gap-3.5"
                 >
                   {/* Thumbnail Preview Stage */}
-                  <div className="relative w-16 h-16 rounded-xl bg-slate-900 border border-slate-200 overflow-hidden shrink-0 flex items-center justify-center">
+                  <div className="relative w-16 h-16 rounded-xl bg-black border border-[#2e2e2e] overflow-hidden shrink-0 flex items-center justify-center">
                     {isVideo ? (
                       item.thumbnailUrl ? (
                         <img
@@ -529,7 +552,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-950 text-purple-400">
+                        <div className="w-full h-full flex flex-col items-center justify-center bg-black text-[#DFC283]">
                           <Film className="w-6 h-6" />
                         </div>
                       )
@@ -537,7 +560,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
                       <img
                         src={item.url}
                         alt={item.name}
-                        className="w-full h-full object-contain p-1 bg-slate-50"
+                        className="w-full h-full object-contain p-1 bg-[#121212]"
                       />
                     )}
 
@@ -553,15 +576,15 @@ export const OriginalImageUploader: React.FC<Props> = ({
                           sizeKb: item.sizeKb
                         })
                       }
-                      className="absolute inset-0 bg-black/40 hover:bg-black/60 flex items-center justify-center text-white transition-all cursor-pointer"
+                      className="absolute inset-0 bg-black/50 hover:bg-black/70 flex items-center justify-center text-white transition-all cursor-pointer"
                       title={isVideo ? 'Play Video' : 'Zoom Image'}
                     >
                       {isVideo ? (
-                        <div className="w-7 h-7 rounded-full bg-purple-600/90 flex items-center justify-center shadow-md">
-                          <Play className="w-3.5 h-3.5 fill-white text-white ml-0.5" />
+                        <div className="w-7 h-7 rounded-full bg-[#C5A059] flex items-center justify-center shadow-md">
+                          <Play className="w-3.5 h-3.5 fill-black text-black ml-0.5" />
                         </div>
                       ) : (
-                        <Maximize2 className="w-4 h-4 opacity-80 group-hover:opacity-100" />
+                        <Maximize2 className="w-4 h-4 text-[#DFC283] opacity-80 group-hover:opacity-100" />
                       )}
                     </button>
                   </div>
@@ -572,23 +595,23 @@ export const OriginalImageUploader: React.FC<Props> = ({
                       <span
                         className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md ${
                           isVideo
-                            ? 'bg-purple-100 text-purple-800'
-                            : 'bg-cyan-100 text-cyan-800'
+                            ? 'bg-purple-950 text-purple-300 border border-purple-800/50'
+                            : 'bg-[#1c1913] text-[#DFC283] border border-[#C5A059]/40'
                         }`}
                       >
                         {isVideo ? 'Video' : 'Image'}
                       </span>
-                      <p className="text-xs font-bold text-slate-800 truncate" title={item.name}>
+                      <p className="text-xs font-bold text-white truncate" title={item.name}>
                         {item.name}
                       </p>
                     </div>
 
-                    <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
+                    <p className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1.5">
                       <span>{item.sizeKb > 1024 ? `${(item.sizeKb / 1024).toFixed(1)} MB` : `${item.sizeKb} KB`}</span>
                       {isVideo && item.durationSec && (
                         <>
                           <span>•</span>
-                          <span className="font-semibold text-purple-700">{formatDuration(item.durationSec)}</span>
+                          <span className="font-semibold text-[#DFC283]">{formatDuration(item.durationSec)}</span>
                         </>
                       )}
                     </p>
@@ -601,8 +624,8 @@ export const OriginalImageUploader: React.FC<Props> = ({
                           onClick={() => handleConnectQr(item)}
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 transition-colors cursor-pointer ${
                             linkedQrId === item.id
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                              : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50'
+                              : 'bg-[#1e1e1e] text-neutral-300 hover:text-white border border-[#333333]'
                           }`}
                           title="Set this video as the destination for the bottle's dynamic QR code"
                         >
@@ -626,7 +649,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
                           sizeKb: item.sizeKb
                         })
                       }
-                      className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors cursor-pointer"
+                      className="p-1.5 text-neutral-400 hover:text-[#DFC283] hover:bg-[#222222] rounded-lg transition-colors cursor-pointer"
                       title={isVideo ? 'Play Video' : 'View'}
                     >
                       {isVideo ? <Play className="w-3.5 h-3.5 fill-current" /> : <Eye className="w-3.5 h-3.5" />}
@@ -634,7 +657,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={() => removeMedia(item.id)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                      className="p-1.5 text-neutral-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
                       title="Remove"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -649,23 +672,23 @@ export const OriginalImageUploader: React.FC<Props> = ({
 
       {/* Full HD Media Player / Lightbox Modal */}
       {previewMedia && (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="relative max-w-3xl w-full bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-700 flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="relative max-w-3xl w-full bg-[#141414] rounded-3xl overflow-hidden shadow-2xl border border-[#282828] flex flex-col max-h-[90vh]">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-800 text-white">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#262626] text-white">
               <div className="flex items-center gap-2.5">
                 {previewMedia.type === 'video' ? (
-                  <div className="w-7 h-7 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-lg bg-purple-950 text-purple-300 flex items-center justify-center">
                     <Video className="w-4 h-4" />
                   </div>
                 ) : (
-                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-lg bg-[#1c1913] text-[#C5A059] flex items-center justify-center">
                     <Eye className="w-4 h-4" />
                   </div>
                 )}
                 <div>
                   <h4 className="text-sm font-bold truncate max-w-md">{previewMedia.name}</h4>
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-neutral-400">
                     {previewMedia.type === 'video' ? 'Full HD Video Playback' : 'Original Print-Ready Image'}
                     {previewMedia.durationSec ? ` • ${formatDuration(previewMedia.durationSec)}` : ''}
                   </p>
@@ -676,7 +699,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
                 <a
                   href={previewMedia.url}
                   download={previewMedia.name}
-                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                  className="px-3 py-1.5 rounded-xl bg-[#222222] hover:bg-[#2c2c2c] text-neutral-200 text-xs font-semibold flex items-center gap-1.5 transition-colors"
                   title="Download File"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -685,7 +708,7 @@ export const OriginalImageUploader: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setPreviewMedia(null)}
-                  className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  className="w-8 h-8 rounded-xl bg-[#222222] hover:bg-[#2c2c2c] text-neutral-300 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -693,18 +716,17 @@ export const OriginalImageUploader: React.FC<Props> = ({
             </div>
 
             {/* Media Content Stage */}
-            <div className="p-4 sm:p-6 flex-1 flex items-center justify-center bg-black/40 overflow-hidden min-h-[300px]">
+            <div className="p-4 sm:p-6 flex-1 flex items-center justify-center bg-black/60 overflow-hidden min-h-[300px]">
               {previewMedia.type === 'video' ? (
-                <div className="w-full max-w-2xl bg-black rounded-2xl overflow-hidden shadow-2xl border border-slate-800 flex items-center justify-center">
-                  <video
+                <div className="w-full max-w-2xl bg-black rounded-2xl overflow-hidden shadow-2xl border border-[#282828] flex items-center justify-center aspect-video">
+                  <UniversalVideoPlayer
                     src={previewMedia.url}
-                    controls
-                    autoPlay
-                    playsInline
-                    className="max-h-[60vh] w-full object-contain"
-                  >
-                    Your browser does not support playing this video format.
-                  </video>
+                    showControls={true}
+                    autoPlay={true}
+                    muted={false}
+                    playsInline={true}
+                    className="w-full h-full object-contain"
+                  />
                 </div>
               ) : (
                 <img
@@ -717,17 +739,17 @@ export const OriginalImageUploader: React.FC<Props> = ({
 
             {/* Footer */}
             {previewMedia.type === 'video' && onLinkVideoToQr && (
-              <div className="px-5 py-3 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-400">Want bottle scanners to watch this video?</span>
+              <div className="px-5 py-3 bg-[#121212] border-t border-[#262626] flex items-center justify-between text-xs">
+                <span className="text-neutral-400">Want bottle scanners to watch this video?</span>
                 <button
                   type="button"
                   onClick={() => {
                     if (onLinkVideoToQr) onLinkVideoToQr(previewMedia.url);
                     setPreviewMedia(null);
                   }}
-                  className="px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black font-black flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
-                  <QrCode className="w-3.5 h-3.5" />
+                  <QrCode className="w-3.5 h-3.5 text-black" />
                   <span>Assign to Dynamic Bottle QR Code</span>
                 </button>
               </div>

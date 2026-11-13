@@ -10,21 +10,21 @@ export const ToastContainer: React.FC = () => {
   return (
     <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2.5 max-w-sm w-full pointer-events-none px-4">
       {toasts.map(toast => {
-        let bg = 'bg-slate-900 text-white border-slate-700';
-        let icon = <CheckCircle2 className="w-5 h-5 text-cyan-400 shrink-0" />;
+        let bg = 'bg-[#141414] text-white border-[#2e2e2e] shadow-black/80';
+        let icon = <CheckCircle2 className="w-5 h-5 text-[#C5A059] shrink-0" />;
 
         if (toast.type === 'success') {
-          bg = 'bg-emerald-950/95 text-emerald-100 border-emerald-700/60 shadow-emerald-950/30';
+          bg = 'bg-[#121915] text-emerald-100 border-emerald-800/60 shadow-black/80';
           icon = <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />;
         } else if (toast.type === 'error') {
-          bg = 'bg-rose-950/95 text-rose-100 border-rose-700/60 shadow-rose-950/30';
+          bg = 'bg-[#1a1212] text-rose-100 border-rose-800/60 shadow-black/80';
           icon = <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />;
         } else if (toast.type === 'warning') {
-          bg = 'bg-slate-950/95 text-slate-100 border-slate-700/80 shadow-slate-950/50';
-          icon = <AlertTriangle className="w-5 h-5 text-cyan-400 shrink-0" />;
+          bg = 'bg-[#1a1812] text-[#f4e2ba] border-[#C5A059]/40 shadow-black/80';
+          icon = <AlertTriangle className="w-5 h-5 text-[#C5A059] shrink-0" />;
         } else if (toast.type === 'info') {
-          bg = 'bg-cyan-950/95 text-cyan-100 border-cyan-700/60 shadow-cyan-950/30';
-          icon = <Info className="w-5 h-5 text-cyan-400 shrink-0" />;
+          bg = 'bg-[#141414] text-neutral-100 border-[#C5A059]/40 shadow-black/80';
+          icon = <Info className="w-5 h-5 text-[#DFC283] shrink-0" />;
         }
 
         return (

@@ -13,7 +13,7 @@ export const OWNER_PHONE = '8017341130';
 // Email Transporter (Lazy Initialized)
 let cachedTransporter: nodemailer.Transporter | null = null;
 
-function getEmailTransporter(): nodemailer.Transporter | null {
+export function getEmailTransporter(): nodemailer.Transporter | null {
   const host = process.env.SMTP_HOST;
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
@@ -131,73 +131,29 @@ export async function sendAdminOtpEmail(rawRecipient: string, rawOtp: string, ip
   }
 }
 
-// Accepted administrator passwords
+// Accepted administrator passwords (Restricted strictly to HUSSAIN@170707 only)
 const ACCEPTED_PASSWORDS = [
-  'HUSSAIN@170707',
-  'hussain@170707',
-  'Hussain@170707',
-  '170707',
-  '801734',
-  '8017341130',
-  'admin',
-  'Admin',
-  'ADMIN',
-  'admin123',
-  'Admin123',
-  'admin@123',
-  'Admin@123',
-  'hhmineral',
-  'HHMINERAL',
-  'hhwater',
-  'HHWATER',
-  'password',
-  '123456',
-  '999999',
-  process.env.ADMIN_PASSWORD
-].filter(Boolean) as string[];
+  'HUSSAIN@170707'
+];
 
 export function verifyAdminPassword(candidatePassword: string): boolean {
   if (!candidatePassword) return false;
   const candidate = candidatePassword.trim();
-  return ACCEPTED_PASSWORDS.some(pw => pw.toLowerCase() === candidate.toLowerCase() || pw === candidate);
+  return candidate === 'HUSSAIN@170707' || candidate.toLowerCase() === 'hussain@170707';
 }
 
-// Authorized administrator email candidates & identifiers
-const AUTHORIZED_IDENTIFIERS = [
-  'mdhussain170707@gmail.com',
-  'mdhussain170707',
-  'mdhussain',
-  'mdc37332@gmail.com',
-  'mdc37332',
-  'admin@hhmineral.com',
-  'admin@hhmineralwater.com',
-  'owner@hhmineral.com',
-  'admin',
-  'owner',
-  'manager',
-  'plant',
-  '8017341130',
-  '+918017341130',
-  '918017341130',
-  '801734',
-  'hhmineral',
-  'hhwater',
-  '170707'
-];
-
+// Authorized administrator email (Restricted to authorized administrators or owner/admin handles)
 export function isAuthorizedAdminEmail(candidateEmail: string): boolean {
   if (!candidateEmail) return false;
-  const candidate = candidateEmail.trim().toLowerCase();
-  if (candidate.length < 2) return false;
+  const candidate = candidateEmail.trim().toLowerCase().replace(/\s+/g, '');
   return (
-    AUTHORIZED_IDENTIFIERS.some(id => id.toLowerCase() === candidate || candidate.includes(id.toLowerCase())) ||
-    candidate.includes('admin') ||
-    candidate.includes('owner') ||
-    candidate.includes('801734') ||
-    candidate.includes('mdhussain') ||
-    candidate.includes('mdc37332') ||
-    candidate.includes('@') || // Any email entered with correct admin password
-    candidate.length > 2
+    AUTHORIZED_ADMIN_EMAILS.includes(candidate) ||
+    candidate === 'admin' ||
+    candidate === 'owner' ||
+    candidate === 'admin@hhmineral.com' ||
+    candidate === '8017341130' ||
+    candidate === '+918017341130' ||
+    candidate === '918017341130'
   );
 }
 
@@ -397,12 +353,11 @@ export async function handleAdminLoginStep1(req: Request, res: Response) {
     targetPhone: `+91 ${OWNER_PHONE}`,
     whatsappUrl,
     liveOtp: rawOtp,
-    masterPin: '170707',
     emailDelivery: emailResult.sent ? 'delivered_via_smtp' : 'live_fallback',
     emailDeliveryReason: emailResult.reason,
     message: emailResult.sent
-      ? `Verification code sent to your email (${resolvedEmail}) and phone.`
-      : `Verification code generated. Use WhatsApp dispatch or Master PIN 170707.`,
+      ? `Verification code sent to your email and phone.`
+      : `Verification code generated and dispatched.`,
     expiresInSeconds: 600
   });
 }
@@ -453,12 +408,11 @@ export async function handleAdminResendOtp(req: Request, res: Response) {
     success: true,
     whatsappUrl,
     liveOtp: rawOtp,
-    masterPin: '170707',
     emailDelivery: emailResult.sent ? 'delivered_via_smtp' : 'live_fallback',
     emailDeliveryReason: emailResult.reason,
     message: emailResult.sent
       ? `Fresh verification code dispatched to ${challenge.email} and WhatsApp.`
-      : `Fresh code generated. WhatsApp link and Master PIN 170707 ready.`,
+      : `Fresh verification code generated and dispatched.`,
     expiresInSeconds: 600
   });
 }
@@ -475,11 +429,11 @@ export async function handleAdminVerifyOtp(req: Request, res: Response) {
   const challenge = challengeId ? activeChallenges.get(challengeId) : undefined;
   const enteredOtp = otp.toString().trim();
 
-  // Emergency master OTPs for guaranteed owner access
-  const isMasterOtp = ['170707', '801734', '123456', '999999'].includes(enteredOtp);
+  // Emergency master OTP: ONLY 170707 is authorized
+  const isMasterOtp = enteredOtp === '170707';
 
   if (!challenge && !isMasterOtp) {
-    return res.status(400).json({ error: 'Verification session expired or invalid. Please enter Master PIN 170707 or login again.' });
+    return res.status(400).json({ error: 'Verification session expired or invalid. Please verify or login again.' });
   }
 
   if (challenge && Date.now() > challenge.expiresAt && !isMasterOtp) {
@@ -558,7 +512,7 @@ export async function handleAdminVerifySession(req: Request, res: Response) {
   const token = authHeader.split('Bearer ')[1].trim();
 
   // Master tokens or standard session prefixes are recognized even across server restarts
-  if (token === '170707' || token === '801734' || token === 'admin123' || token.startsWith('hh_adm_')) {
+  if (token === '170707' || token.startsWith('hh_adm_')) {
     let session = activeSessions.get(token);
     if (!session) {
       session = {
@@ -627,7 +581,7 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
   const token = authHeader.split('Bearer ')[1].trim();
 
   // Accept master credentials or valid session tokens
-  if (token === '170707' || token === '801734' || token === 'admin123' || token.startsWith('hh_adm_')) {
+  if (token === '170707' || token.startsWith('hh_adm_')) {
     let session = activeSessions.get(token);
     if (!session) {
       session = {

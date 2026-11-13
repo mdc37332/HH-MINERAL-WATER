@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BatchQualityLog } from '../../types';
 import { INITIAL_BATCH_QUALITY_LOGS } from '../../data/initialProducts';
 import { useStore } from '../../context/StoreContext';
+import { safeStorage } from '../../lib/storage';
 import {
   ShieldCheck,
   Award,
@@ -29,7 +30,7 @@ export const WaterQualityTab: React.FC<WaterQualityTabProps> = ({ showToast: pro
 
   const [logs, setLogs] = useState<BatchQualityLog[]>(() => {
     try {
-      const saved = localStorage.getItem('hh_quality_logs');
+      const saved = safeStorage.getItem('hh_quality_logs');
       return saved ? JSON.parse(saved) : INITIAL_BATCH_QUALITY_LOGS;
     } catch {
       return INITIAL_BATCH_QUALITY_LOGS;
@@ -61,7 +62,7 @@ export const WaterQualityTab: React.FC<WaterQualityTabProps> = ({ showToast: pro
   const saveLogs = (updated: BatchQualityLog[]) => {
     setLogs(updated);
     try {
-      localStorage.setItem('hh_quality_logs', JSON.stringify(updated));
+      safeStorage.setItem('hh_quality_logs', JSON.stringify(updated));
     } catch (e) {
       console.warn('Failed to save quality logs:', e);
     }

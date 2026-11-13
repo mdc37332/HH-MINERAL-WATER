@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { FleetVehicle, Order } from '../../types';
 import { INITIAL_FLEET_VEHICLES } from '../../data/initialProducts';
 import { useStore } from '../../context/StoreContext';
+import { safeStorage } from '../../lib/storage';
 import {
   Truck,
   MapPin,
@@ -32,7 +33,7 @@ export const FleetDispatchTab: React.FC<FleetDispatchTabProps> = ({ orders: prop
 
   const [vehicles, setVehicles] = useState<FleetVehicle[]>(() => {
     try {
-      const saved = localStorage.getItem('hh_fleet_vehicles');
+      const saved = safeStorage.getItem('hh_fleet_vehicles');
       return saved ? JSON.parse(saved) : INITIAL_FLEET_VEHICLES;
     } catch {
       return INITIAL_FLEET_VEHICLES;
@@ -60,7 +61,7 @@ export const FleetDispatchTab: React.FC<FleetDispatchTabProps> = ({ orders: prop
   const saveVehicles = (updated: FleetVehicle[]) => {
     setVehicles(updated);
     try {
-      localStorage.setItem('hh_fleet_vehicles', JSON.stringify(updated));
+      safeStorage.setItem('hh_fleet_vehicles', JSON.stringify(updated));
     } catch (e) {
       console.warn('Failed to save fleet vehicles:', e);
     }
@@ -135,9 +136,14 @@ export const FleetDispatchTab: React.FC<FleetDispatchTabProps> = ({ orders: prop
     if (pendingOrders.length === 0) {
       manifestList = `• No active dispatch orders scheduled currently. Stand by at plant.`;
     } else {
-      manifestList = pendingOrders.slice(0, 8).map((o, idx) =>
-        `${idx + 1}. Order ${o.id}: ${o.customer.name} (${o.customer.phone})\n   📍 ${o.customer.address}, ${o.customer.pincode}\n   📦 ${o.items.map(i => `${i.product.size} x${i.quantity}`).join(', ')} (₹${o.totalAmount})`
-      ).join('\n\n');
+      manifestList = pendingOrders.slice(0, 8).map((o, idx) => {
+        const coords = o.deliveryCoordinates || o.customer.deliveryCoordinates;
+        const navLine = coords
+          ? `\n   🗺️ Google Maps Nav: https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}${coords.gateNote ? `\n   🚪 Delivery Note: ${coords.gateNote}` : ''}`
+          : `\n   🗺️ Google Maps Nav: https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${o.customer.address}, ${o.customer.city} ${o.customer.pincode}`)}`;
+
+        return `${idx + 1}. Order ${o.id}: ${o.customer.name} (${o.customer.phone})\n   📍 ${o.customer.address}, ${o.customer.pincode}${navLine}\n   📦 ${o.items.map(i => `${i.product.size} x${i.quantity}`).join(', ')} (₹${o.totalAmount})`;
+      }).join('\n\n');
     }
 
     const message = `*HH MINERAL WATER - FLEET DISPATCH & ROUTE SHEET*\n\n` +

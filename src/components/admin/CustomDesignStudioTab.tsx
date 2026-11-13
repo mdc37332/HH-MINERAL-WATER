@@ -39,11 +39,13 @@ import {
 } from 'lucide-react';
 
 interface CustomDesignStudioTabProps {
+  isFactoryStaffMode?: boolean;
   onDeleteOrder: (order: Order) => void;
   onDeleteAllCustomOrders: () => void;
 }
 
 export const CustomDesignStudioTab: React.FC<CustomDesignStudioTabProps> = ({
+  isFactoryStaffMode = false,
   onDeleteOrder,
   onDeleteAllCustomOrders
 }) => {
@@ -135,9 +137,12 @@ export const CustomDesignStudioTab: React.FC<CustomDesignStudioTabProps> = ({
     });
   }, [customOrdersOnly, searchQuery, statusFilter, designFilter]);
 
-  // Pipeline metrics
+  // Pipeline metrics - Delivery charges are pass-through shipping costs (not profit) and are excluded from revenue.
   const totalPipelineValue = useMemo(() => {
-    return customOrdersOnly.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    return customOrdersOnly.reduce(
+      (sum, o) => sum + Math.max(0, (o.totalAmount || 0) - (o.deliveryCharge || 0)),
+      0
+    );
   }, [customOrdersOnly]);
 
   const pendingReviewCount = useMemo(() => {
@@ -446,7 +451,14 @@ export const CustomDesignStudioTab: React.FC<CustomDesignStudioTabProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-3 shrink-0">
-            {customOrdersOnly.length > 0 && (
+            {isFactoryStaffMode && (
+              <span className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5" />
+                <span>Staff Mode: Review &amp; Job Sheet Active</span>
+              </span>
+            )}
+
+            {!isFactoryStaffMode && customOrdersOnly.length > 0 && (
               <button
                 type="button"
                 onClick={onDeleteAllCustomOrders}
@@ -482,7 +494,7 @@ export const CustomDesignStudioTab: React.FC<CustomDesignStudioTabProps> = ({
             <span className="font-heading text-xl font-black mt-0.5 block text-emerald-300">
               ₹{totalPipelineValue.toLocaleString('en-IN')}
             </span>
-            <span className="text-[10px] text-slate-400">Gross custom order revenue</span>
+            <span className="text-[10px] text-slate-400">Product revenue (excl. delivery)</span>
           </div>
 
           <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5">
@@ -721,10 +733,19 @@ export const CustomDesignStudioTab: React.FC<CustomDesignStudioTabProps> = ({
                           </div>
                         </div>
 
-                        {c?.dateOrVenue && (
-                          <div className="col-span-2 sm:col-span-4 pt-1">
-                            <span className="text-slate-400 text-[10px] block">Date & Venue</span>
-                            <span className="font-semibold text-slate-800">{c.dateOrVenue}</span>
+                        {(c?.eventDate || c?.dateOrVenue) && (
+                          <div className="col-span-2 sm:col-span-4 pt-1 bg-amber-50/70 p-2.5 rounded-xl border border-amber-200">
+                            <span className="text-amber-900 text-[10px] font-bold block uppercase tracking-wider flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-amber-700" /> Event Schedule & Lead Time
+                            </span>
+                            <div className="flex flex-wrap items-center justify-between gap-1.5 mt-0.5">
+                              <span className="font-bold text-slate-900 text-xs">
+                                {c?.eventDate ? `${new Date(c.eventDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}${c.eventVenue ? ` • ${c.eventVenue}` : ''}` : c?.dateOrVenue}
+                              </span>
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                                1-Week Booking Policy Enforced
+                              </span>
+                            </div>
                           </div>
                         )}
 

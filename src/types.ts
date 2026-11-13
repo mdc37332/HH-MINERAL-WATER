@@ -8,6 +8,11 @@ export interface CustomerAddress {
   city: string;
   pincode: string;
   isDefault: boolean;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  gateNote?: string;
+  googleMapsUrl?: string;
 }
 
 export interface CustomerProfile {
@@ -40,7 +45,7 @@ export interface Product {
   price: number;
   mrp: number;
   image: string;
-  images?: string[]; // Multiple photos / gallery images for the product
+  images?: string[]; // Multiple product gallery images (unlimited)
   description: string;
   shortDesc: string;
   inStock: boolean;
@@ -59,6 +64,9 @@ export interface Product {
   discountPercent?: number; // e.g. 10%
   stockCount?: number; // Numerical inventory count
   stockStatus?: 'In Stock' | 'Low Stock' | 'Out of Stock';
+  lowStockThreshold?: number; // Numerical critical alert threshold (defaults to 50)
+  reorderLevel?: number; // Numerical warning reorder level (defaults to 100)
+  showSellingPrice?: boolean; // Admin toggle: when true (default), discounted selling price is active; when false, sells at standard MRP
   tags?: string[]; // e.g. ["Packaged Water", "Natural Minerals", "Party Favourite"]
   version?: number; // Server-side concurrency & version tracker
   updatedAt?: string; // ISO timestamp of last update
@@ -97,6 +105,8 @@ export interface CustomDesignDetails {
   tagline?: string;
   customText?: string;
   dateOrVenue?: string;
+  eventDate?: string; // e.g. YYYY-MM-DD or formatted date, must be booked at least 1 week before event
+  eventVenue?: string; // Event venue, city, or banquet location
   specialInstructions?: string;
   labelThemeColor: string;
   labelTextColor: string;
@@ -148,6 +158,17 @@ export interface CartItem {
   addedAt: string;
 }
 
+export interface DeliveryCoordinates {
+  lat: number;
+  lng: number;
+  accuracy?: number;
+  addressText?: string;
+  googleMapsUrl?: string;
+  navigationUrl?: string;
+  gateNote?: string; // e.g. "Tower B entrance, near security guard booth"
+  capturedAt?: string;
+}
+
 export interface CustomerInfo {
   name: string;
   phone: string;
@@ -157,6 +178,11 @@ export interface CustomerInfo {
   city: string;
   pincode: string;
   gstin?: string;
+  state?: string;
+  stateCode?: string;
+  companyName?: string;
+  isOfflineCustomer?: boolean;
+  deliveryCoordinates?: DeliveryCoordinates;
 }
 
 export type OrderStatus =
@@ -191,6 +217,17 @@ export interface SingleWhatsAppNotificationRecord {
   messageId?: string;
 }
 
+export interface AdminEmailNotificationState {
+  status: 'SENT' | 'PENDING' | 'FAILED' | 'CONFIG_REQUIRED';
+  sentAt?: string;
+  targetEmails: string[];
+  retryCount?: number;
+  lastAttempt?: string;
+  error?: string;
+  mode?: 'smtp' | 'log_fallback';
+  messageId?: string;
+}
+
 export interface WhatsAppNotificationState {
   status: 'SENT' | 'PENDING' | 'FAILED' | 'ACKNOWLEDGED';
   sentAt?: string;
@@ -219,11 +256,31 @@ export interface Order {
   isCustomOrder: boolean;
   hasOriginalImage: boolean;
   hasUploadedVideo?: boolean;
+  customDesignDetails?: CustomDesignDetails;
+  customLabelDetails?: CustomLabelDetails;
   status: OrderStatus;
   statusHistory: OrderStatusHistoryItem[];
   whatsAppNotification: WhatsAppNotificationState;
+  adminEmailNotification?: AdminEmailNotificationState;
   invoiceNumber?: string; // e.g. "HH/2026/000001"
   invoiceId?: string;
+  // Delivery & Pickup Specifications
+  deliveryType?: 'doorstep' | 'self_pickup';
+  deliveryDistanceKm?: number;
+  pickupSlot?: string;
+  pickupLocation?: string;
+  deliveryCoordinates?: DeliveryCoordinates;
+  isOfflineSale?: boolean;
+  orderSource?: 'online' | 'offline_counter' | 'direct_sales';
+}
+
+export interface CustomLabelDetails {
+  brandName?: string;
+  eventType?: string;
+  finishType?: string;
+  bottleCapColor?: string;
+  plateCharge?: number;
+  specialInstructions?: string;
 }
 
 export interface AdminSettings {
@@ -234,11 +291,39 @@ export interface AdminSettings {
   freeDeliveryMinAmount: number;
   defaultDeliveryCharge: number;
   adminPin: string;
+  factoryStaffPin?: string; // 4-digit PIN for Factory Counter Staff (default: "1234")
   acceptingOrders: boolean;
   autoProgressOrders?: boolean; // Automatic order status progression workflow
   autoProgressIntervalMinutes?: number; // Minutes per status transition stage (e.g. 2 min)
   heroBannerImage?: string;
+  heroBannerVideo?: string; // Uploaded video file (MP4/WebM Data URL) or public video URL for Hero
+  heroMediaType?: 'image' | 'video'; // Active media view on Hero showcase
   brandLogoImage?: string;
+
+  // Meta WhatsApp Cloud API (Automated Server-to-WhatsApp Delivery without opening WhatsApp)
+  whatsappCloudApiEnabled?: boolean;
+  whatsappPhoneNumberId?: string;
+  whatsappCloudApiToken?: string;
+  whatsappBusinessAccountId?: string;
+  adminWhatsAppNumber?: string; // default "8017341130"
+  // Email Notifications to Admin
+  adminNotificationEmail?: string; // default "mdc37332@gmail.com, mdhussain170707@gmail.com"
+  adminEmailNotificationEnabled?: boolean; // default true
+  // Audio & Notification Alerts (Option 2: Live sound chime & desktop alerts)
+  adminSoundAlertEnabled?: boolean; // default true
+  adminBrowserPushEnabled?: boolean; // default true
+
+  // Factory Location & Logistics Delivery Constraints (Under 7 Km)
+  factoryLocationName?: string; // "HH Mineral Water Bottling Plant"
+  factoryAddress?: string; // "Plot 12, Sector V, Salt Lake, Kolkata, West Bengal - 700091"
+  factoryLatitude?: number; // 22.5726
+  factoryLongitude?: number; // 88.4331
+  maxDeliveryRadiusKm?: number; // 7 (Delivery strictly under 7 Km only)
+  selfPickupEnabled?: boolean; // true (Add self pickup option)
+  selfPickupAddress?: string; // "Factory Counter 1, HH Bottling Plant, Plot 12, Sector V, Salt Lake, Kolkata"
+  selfPickupTimings?: string; // "Mon - Sun: 9:00 AM - 8:00 PM"
+  selfPickupContact?: string; // "+91 8017341130"
+  factoryPincodes?: string[]; // Allowed delivery pincodes within ~7km
 
   // Indian GST & Business Details (Fully Configurable)
   legalBusinessName: string; // e.g. "HH MINERAL WATER BOTTLING & PACKAGING"
@@ -265,6 +350,21 @@ export interface AdminSettings {
   bankUpiId?: string;
   upiId?: string;
   invoiceTerms?: string;
+
+  // Pricing & Selling Price Controls (Admin-Only)
+  showAllProducts?: boolean; // Admin-only master switch: when true (default), all products are shown on storefront; when false, products are hidden from customers/staff
+  showSellingPrice?: boolean; // Global master switch: when true (default), discounted selling prices are enabled store-wide; when false, all products sell at MRP
+  showDiscountPercentage?: boolean; // Global switch: show/hide discount percentage badge (e.g. 40% OFF) across products
+  disabledSellingPriceProductIds?: string[]; // List of specific product IDs where selling price is turned OFF
+
+  // Double-Entry Accounting & CA Audit Controls
+  accountingZeroBaseMode?: boolean; // When true, all accounts start at 0 and all figures are dynamically collected from live product sales revenue and raw material purchases
+
+  // Automated Low-Stock Monitoring & WhatsApp Alerts (+91 8017341130)
+  lowStockAlertsEnabled?: boolean; // When true, automated low-stock checks run & trigger alerts
+  defaultBottleCriticalThreshold?: number; // Critical stock threshold for finished bottles (default: 50)
+  defaultBottleReorderLevel?: number; // Reorder warning level for finished bottles (default: 100)
+  autoSendWhatsAppOnCriticalStock?: boolean; // Automated dispatch to admin WhatsApp on critical stock detection
 }
 
 // ----------------------------------------------------
@@ -356,6 +456,10 @@ export interface Invoice {
   paymentStatus: string;
   status: 'GENERATED' | 'PAID' | 'CANCELLED';
   createdAt: string;
+  isOfflineInvoice?: boolean;
+  orderSource?: string;
+  isCustomOrder?: boolean;
+  customLabelDetails?: CustomLabelDetails;
 }
 
 // ----------------------------------------------------
@@ -410,16 +514,292 @@ export interface FleetVehicle {
   todayDeliveriesCount: number;
 }
 
+export type PurchaseExpenseCategory =
+  | 'PET Preforms & Caps'
+  | 'Electricity & Water Treatment'
+  | 'Corrugated Boxes & Shrink Pack'
+  | 'Fleet Fuel & Vehicle Service'
+  | 'RO Membrane & Filter Consumables'
+  | 'Plant Labor & Staff Wages'
+  | 'Water Treatment Chemicals & Minerals'
+  | 'Bottle Caps & Closures'
+  | 'Plant Machinery Spares'
+  | 'Other Operational';
+
+// ----------------------------------------------------
+// Raw Materials Inventory & Low-Stock Monitoring
+// ----------------------------------------------------
+
+export interface RawMaterialStockItem {
+  id: string;
+  name: string;
+  category: PurchaseExpenseCategory;
+  hsnCode: string; // e.g. "3923" for preforms/caps, "4819" for cartons, "2833" for minerals
+  currentStock: number;
+  unit: 'pcs' | 'cartons' | 'kg' | 'rolls' | 'litres' | 'filters' | 'bottles' | string;
+  criticalThreshold: number; // Red Alert triggered when stock <= criticalThreshold
+  reorderLevel: number; // Warning yellow triggered when stock <= reorderLevel
+  costPerUnit?: number; // Estimated unit cost (₹)
+  standardVendorName: string;
+  standardVendorPhone: string;
+  lastRestockedDate?: string;
+  lastRestockedQty?: number;
+  notes?: string;
+}
+
+export interface LowStockAlertItem {
+  id: string;
+  type: 'bottle' | 'raw_material';
+  name: string;
+  currentStock: number;
+  unit: string;
+  criticalThreshold: number;
+  reorderLevel: number;
+  severity: 'CRITICAL' | 'WARNING';
+  vendorName?: string;
+  vendorPhone?: string;
+  hsnCode?: string;
+  size?: string;
+  category?: string;
+}
+
+export interface LowStockAuditSummary {
+  checkedAt: string;
+  totalItemsChecked: number;
+  criticalCount: number;
+  warningCount: number;
+  healthyCount: number;
+  criticalItems: LowStockAlertItem[];
+  warningItems: LowStockAlertItem[];
+  hasCriticalStock: boolean;
+  hasLowStock: boolean;
+}
+
 export interface PlantExpense {
   id: string;
   date: string;
-  category: 'PET Preforms & Caps' | 'Electricity & Water Treatment' | 'Corrugated Boxes & Shrink Pack' | 'Fleet Fuel & Vehicle Service' | 'RO Membrane & Filter Consumables' | 'Plant Labor & Staff Wages' | 'Other Operational';
+  category: PurchaseExpenseCategory;
   title: string;
   amount: number;
-  paymentMode: 'Bank Transfer' | 'UPI' | 'Cash' | 'Cheque';
+  taxableAmount?: number;
+  gstRate?: number; // e.g. 18 (%)
+  cgstAmount?: number;
+  sgstAmount?: number;
+  igstAmount?: number;
+  hsnCode?: string; // e.g. "3923" for preforms/caps, "4819" for cartons
+  vendorGstin?: string;
   vendorName?: string;
   invoiceOrBillRef?: string;
+  paymentMode: 'Bank Transfer' | 'UPI' | 'Cash' | 'Cheque' | 'Credit / Sundry Creditor';
+  paymentStatus?: 'Paid' | 'Pending / Credit Due';
+  itcEligible?: boolean; // Input Tax Credit
+  quantity?: number;
+  unit?: string;
   notes?: string;
+  createdAt: string;
+}
+
+// ----------------------------------------------------
+// Accounting & CA Audit Structures (Double-Entry Bookkeeping)
+// ----------------------------------------------------
+
+export type AccountCategory =
+  | 'Asset'
+  | 'Liability'
+  | 'Equity'
+  | 'Revenue'
+  | 'Direct Expense'
+  | 'Indirect Expense';
+
+export interface JournalEntryLine {
+  accountCode: string;
+  accountName: string;
+  category: AccountCategory;
+  debit: number; // Dr. in ₹
+  credit: number; // Cr. in ₹
+  notes?: string;
+}
+
+export interface JournalEntry {
+  id: string; // e.g. "JV-2026-0001" or "SALES-HH-2026-000001"
+  voucherNumber: string;
+  voucherType: 'Sales' | 'Purchase / Expense' | 'Payment / Receipt' | 'Contra' | 'Journal Adjustment';
+  date: string; // YYYY-MM-DD
+  referenceId: string; // e.g. Invoice Number or Expense ID
+  sourceType: 'invoice' | 'expense' | 'manual_jv';
+  narration: string;
+  lines: JournalEntryLine[];
+  totalDebit: number;
+  totalCredit: number;
+  isBalanced: boolean;
+  customerName?: string;
+  vendorName?: string;
+  gstin?: string;
+  hsnCode?: string;
+}
+
+export interface LedgerPostingItem {
+  id: string;
+  date: string;
+  voucherNumber: string;
+  voucherType: string;
+  referenceId: string;
+  particulars: string; // Contra account(s)
+  narration: string;
+  debit: number;
+  credit: number;
+  runningBalance: number;
+  balanceType: 'Dr' | 'Cr';
+}
+
+export interface LedgerAccount {
+  accountCode: string;
+  accountName: string;
+  category: AccountCategory;
+  description?: string;
+  openingBalance: number;
+  openingType: 'Dr' | 'Cr';
+  totalDebit: number;
+  totalCredit: number;
+  closingBalance: number;
+  closingType: 'Dr' | 'Cr';
+  postings: LedgerPostingItem[];
+}
+
+export interface TrialBalanceItem {
+  accountCode: string;
+  accountName: string;
+  category: AccountCategory;
+  debitBalance: number;
+  creditBalance: number;
+}
+
+export interface TrialBalanceStatement {
+  asOfDate: string;
+  financialYear: string;
+  items: TrialBalanceItem[];
+  totalDebits: number;
+  totalCredits: number;
+  isBalanced: boolean;
+  difference: number;
+}
+
+export interface ProfitAndLossStatement {
+  periodFrom: string;
+  periodTo: string;
+  financialYear: string;
+  // Revenue
+  grossSales: number;
+  discountsAllowed: number;
+  netSales: number;
+  // Direct Expenses / Cost of Goods Sold
+  openingStock: number;
+  petPreformsAndCaps: number;
+  corrugatedBoxesAndPackaging: number;
+  waterTreatmentAndPlantPower: number;
+  plantBottlingWages: number;
+  totalDirectCosts: number;
+  closingStock: number;
+  costOfGoodsSold: number;
+  grossProfit: number;
+  grossProfitMarginPercent: number;
+  // Indirect / Operating Incomes
+  deliveryFreightRecovered: number;
+  customSetupFeeIncome: number;
+  totalIndirectIncome: number;
+  waterTreatmentMinerals?: number;
+  plantMachinerySpares?: number;
+  // Indirect / Operating Expenses
+  fleetFuelAndVehicleRunning: number;
+  roMembraneAndFilterConsumables: number;
+  administrativeAndGeneralExpenses: number;
+  depreciation: number;
+  totalIndirectExpenses: number;
+  // Net Profit
+  netProfitBeforeTax: number;
+  netProfitMarginPercent: number;
+}
+
+export interface BalanceSheetStatement {
+  asOfDate: string;
+  financialYear: string;
+  // Liabilities & Capital
+  capitalAccount: {
+    openingCapital: number;
+    capitalIntroduced: number;
+    addNetProfit: number;
+    lessDrawings: number;
+    closingCapital: number;
+  };
+  currentLiabilities: {
+    outputCgstPayable: number;
+    outputSgstPayable: number;
+    outputIgstPayable: number;
+    totalGstPayable: number;
+    sundryCreditors: number;
+    outstandingExpenses: number;
+    totalCurrentLiabilities: number;
+  };
+  totalLiabilitiesAndEquity: number;
+  // Assets
+  fixedAssets: {
+    bottlingPlantMachinery: number;
+    deliveryFleetVehicles: number;
+    lessAccumulatedDepreciation: number;
+    netFixedAssets: number;
+  };
+  currentAssets: {
+    finishedGoodsStock: number;
+    rawMaterialsStock: number;
+    sundryDebtors: number;
+    bankBalances: number;
+    cashInHand: number;
+    inputTaxCredit?: number;
+    totalCurrentAssets: number;
+  };
+  totalAssets: number;
+  isBalanced: boolean;
+  difference: number;
+}
+
+export interface CaAuditSummary {
+  financialYear: string;
+  assessmentYear: string;
+  grossTurnover: number;
+  taxableTurnover: number;
+  exemptTurnover: number;
+  outputGstTotal: number;
+  outputCgst: number;
+  outputSgst: number;
+  outputIgst: number;
+  hsnSummary: {
+    hsnCode: string;
+    description: string;
+    uqc: string;
+    totalQuantity: number;
+    totalValue: number;
+    taxableValue: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+  }[];
+  cashReceiptsOverLimitCount: number; // Section 269ST check (> Rs 2 Lakh single cash transaction)
+  methodOfAccounting: 'Mercantile (Accrual System)';
+  auditorRemarks: string;
+}
+
+export interface ManualJournalVoucher {
+  id: string;
+  voucherNumber: string;
+  date: string;
+  narration: string;
+  lines: {
+    accountCode: string;
+    accountName: string;
+    category: AccountCategory;
+    debit: number;
+    credit: number;
+  }[];
   createdAt: string;
 }
 

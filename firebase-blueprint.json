@@ -110,7 +110,11 @@
         "orderPrefix": { "type": "string", "maxLength": 50 },
         "businessName": { "type": "string", "maxLength": 200 },
         "gstin": { "type": "string", "maxLength": 50 },
-        "fssaiNumber": { "type": "string", "maxLength": 50 }
+        "fssaiNumber": { "type": "string", "maxLength": 50 },
+        "showAllProducts": { "type": "boolean" },
+        "showSellingPrice": { "type": "boolean" },
+        "showDiscountPercentage": { "type": "boolean" },
+        "factoryStaffPin": { "type": "string", "maxLength": 20 }
       }
     }
   },

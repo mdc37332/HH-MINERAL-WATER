@@ -3,15 +3,74 @@
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', sans-serif;
+    background-color: #000000;
+    color: #f5f5f7;
   }
   h1, h2, h3, h4, .font-heading {
     font-family: 'Outfit', sans-serif;
   }
+  .font-brand {
+    font-family: 'Cinzel', serif;
+  }
+  .admin-panel-root .bg-white {
+    color: #000000;
+  }
+}
+
+/* Admin light-surface editing controls strictly render typed/edited text in crisp black (#000000) */
+.admin-panel-root input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([class*="bg-[#1"]):not([class*="bg-slate-9"]):not([class*="bg-black"]):not([class*="text-white"]):not([class*="text-[#"]),
+.admin-panel-root textarea:not([class*="bg-[#1"]):not([class*="bg-slate-9"]):not([class*="bg-black"]):not([class*="text-white"]):not([class*="text-[#"]),
+.admin-panel-root select:not([class*="bg-[#1"]):not([class*="bg-slate-9"]):not([class*="bg-black"]):not([class*="text-white"]):not([class*="text-[#"]),
+.admin-panel-root [contenteditable="true"] {
+  color: #000000 !important;
+}
+
+.admin-panel-root select:not([class*="bg-[#1"]):not([class*="bg-slate-9"]):not([class*="bg-black"]):not([class*="text-white"]) option {
+  color: #000000;
+  background-color: #ffffff;
 }
 
 @keyframes waterPulse {
   0%, 100% { transform: translateY(0px) scale(1); }
   50% { transform: translateY(-4px) scale(1.02); }
+}
+
+@keyframes hydroLevitate {
+  0% { transform: translateY(0px) rotate(0deg); }
+  25% { transform: translateY(-8px) rotate(0.6deg); }
+  50% { transform: translateY(-14px) rotate(0deg) scale(1.02); }
+  75% { transform: translateY(-6px) rotate(-0.6deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+@keyframes hydroLevitateSubtle {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px) scale(1.015); }
+}
+
+@keyframes studioLightSweep {
+  0% { transform: translateX(-160%) skewX(-20deg); opacity: 0; }
+  15% { opacity: 0.7; }
+  45% { transform: translateX(160%) skewX(-20deg); opacity: 0; }
+  100% { transform: translateX(160%) skewX(-20deg); opacity: 0; }
+}
+
+@keyframes liquidRipple {
+  0% { transform: scale(0.55, 0.25); opacity: 0.9; }
+  50% { opacity: 0.45; }
+  100% { transform: scale(1.85, 0.8); opacity: 0; }
+}
+
+@keyframes dropletFloat {
+  0% { transform: translateY(15px) scale(0.6); opacity: 0; }
+  30% { opacity: 0.85; }
+  80% { opacity: 0.5; }
+  100% { transform: translateY(-35px) scale(1.15); opacity: 0; }
+}
+
+@keyframes causticGlow {
+  0%, 100% { opacity: 0.25; transform: scale(1) rotate(0deg); }
+  50% { opacity: 0.65; transform: scale(1.12) rotate(6deg); }
 }
 
 @keyframes shimmer {
@@ -23,26 +82,66 @@
   animation: waterPulse 4s ease-in-out infinite;
 }
 
+.animate-hydro-levitate {
+  animation: hydroLevitate 5s ease-in-out infinite;
+}
+
+.animate-hydro-subtle {
+  animation: hydroLevitateSubtle 4s ease-in-out infinite;
+}
+
+.animate-light-sweep {
+  animation: studioLightSweep 3.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-liquid-ripple-1 {
+  animation: liquidRipple 3s cubic-bezier(0.1, 0.4, 0.6, 1) infinite;
+}
+
+.animate-liquid-ripple-2 {
+  animation: liquidRipple 3s cubic-bezier(0.1, 0.4, 0.6, 1) infinite 1.5s;
+}
+
+.animate-caustic {
+  animation: causticGlow 6s ease-in-out infinite;
+}
+
 .water-shimmer {
-  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
+  background: linear-gradient(90deg, rgba(197,160,89,0) 0%, rgba(197,160,89,0.3) 50%, rgba(197,160,89,0) 100%);
   background-size: 200% 100%;
   animation: shimmer 3s infinite;
 }
 
-/* Custom scrollbars */
+/* Luxury Gold & Graphite Utility Classes */
+.gold-gradient-text {
+  background: linear-gradient(135deg, #FFFFFF 0%, #DFC283 50%, #C5A059 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-gradient-bg {
+  background: linear-gradient(135deg, #DFC283 0%, #C5A059 100%);
+}
+
+.gold-border-glow {
+  border-color: rgba(197, 160, 89, 0.4);
+  box-shadow: 0 0 20px -5px rgba(197, 160, 89, 0.2);
+}
+
+/* Custom dark graphite & champagne scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: #0d0d0d;
 }
 ::-webkit-scrollbar-thumb {
-  background: #94a3b8;
+  background: #262626;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #64748b;
+  background: #C5A059;
 }
 
 /* Print Stylesheet for Official Indian GST Invoices */
@@ -139,42 +238,217 @@
     background: #ffffff !important;
   }
 
-  #printable-gst-invoice {
-    display: block !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    box-shadow: none !important;
-    border: none !important;
-    overflow: visible !important;
-    max-height: none !important;
+  /* Page break & layout rules to fit completely and FULLY FILL 1 single A4 paper */
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm;
   }
 
-  /* Page break rules for clean A4 printing */
+  html, body {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    min-height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Target #printable-gst-invoice strictly for 1-page A4 print that FULLY FILLS the sheet */
+  #printable-gst-invoice {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 278mm !important;
+    min-height: 276mm !important;
+    max-height: 280mm !important;
+    box-sizing: border-box !important;
+    padding: 6mm 7mm !important;
+    margin: 0 auto !important;
+    border: 1.5px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+    font-size: 8.8pt !important;
+    line-height: 1.35 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  /* Enforce multi-column layout is strictly preserved during printing */
+  #printable-gst-invoice .md\:grid-cols-2,
+  #printable-gst-invoice [class*="md:grid-cols-2"],
+  #printable-gst-invoice .print\:grid-cols-2 {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  #printable-gst-invoice .md\:grid-cols-12,
+  #printable-gst-invoice [class*="md:grid-cols-12"],
+  #printable-gst-invoice .print\:grid-cols-12 {
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+  }
+
+  #printable-gst-invoice .md\:col-span-7,
+  #printable-gst-invoice [class*="md:col-span-7"],
+  #printable-gst-invoice .print\:col-span-7 {
+    grid-column: span 7 / span 7 !important;
+  }
+
+  #printable-gst-invoice .md\:col-span-5,
+  #printable-gst-invoice [class*="md:col-span-5"],
+  #printable-gst-invoice .print\:col-span-5 {
+    grid-column: span 5 / span 5 !important;
+  }
+
+  #printable-gst-invoice .md\:border-b-0 {
+    border-bottom-width: 0px !important;
+  }
+
+  #printable-gst-invoice .md\:border-r {
+    border-right-width: 1px !important;
+  }
+
+  #printable-gst-invoice .sm\:flex-row,
+  #printable-gst-invoice .print\:flex-row {
+    flex-direction: row !important;
+    align-items: center !important;
+  }
+
+  /* Reset margin on top-level children so flex space-between evenly distributes vertically */
+  #printable-gst-invoice > :not([hidden]) ~ :not([hidden]),
+  #printable-gst-invoice > * + * {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+  }
+
+  /* Balanced grid gaps in print */
+  #printable-gst-invoice .grid,
+  #printable-gst-invoice [class*="grid-cols"] {
+    gap: 8px !important;
+  }
+
+  /* Balanced card boxes and border radii */
+  #printable-gst-invoice .rounded-xl,
+  #printable-gst-invoice .rounded-2xl {
+    border-radius: 6px !important;
+  }
+
+  #printable-gst-invoice [class*="p-3"],
+  #printable-gst-invoice [class*="p-4"],
+  #printable-gst-invoice [class*="p-3.5"] {
+    padding: 6px 9px !important;
+  }
+
+  #printable-gst-invoice [class*="space-y-"] > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 3px !important;
+  }
+
+  /* Invoice table in print */
+  #printable-gst-invoice table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 8.5pt !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  #printable-gst-invoice table th {
+    padding: 4px 6px !important;
+    font-size: 8pt !important;
+    background-color: #0f172a !important;
+    color: #ffffff !important;
+  }
+
+  #printable-gst-invoice table td {
+    padding: 5px 6px !important;
+    font-size: 8.5pt !important;
+  }
+
+  /* Header banner styling */
+  #printable-gst-invoice h1 {
+    font-size: 15pt !important;
+    line-height: 1.15 !important;
+  }
+
+  #printable-gst-invoice .w-12.h-12 {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 7px !important;
+  }
+
+  #printable-gst-invoice .w-12.h-12 span.text-xl {
+    font-size: 14pt !important;
+  }
+
+  /* Signature box */
+  #printable-gst-invoice .min-h-\[100px\] {
+    min-height: 65px !important;
+  }
+
+  #printable-gst-invoice .pt-8 {
+    padding-top: 18px !important;
+  }
+
+  #printable-gst-invoice .pt-4,
+  #printable-gst-invoice .pt-6 {
+    padding-top: 4px !important;
+  }
+
+  /* Universal avoid breaks */
   .print-avoid-break,
   tr,
   .avoid-break {
     break-inside: avoid !important;
     page-break-inside: avoid !important;
   }
+}
 
-  table {
-    page-break-inside: auto;
-    width: 100% !important;
-  }
+/* Google Places Autocomplete Dropdown - high z-index for modals */
+.pac-container {
+  z-index: 999999 !important;
+  background-color: #181a20 !important;
+  border: 1px solid #383d4c !important;
+  border-radius: 12px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 8px 10px -6px rgba(0, 0, 0, 0.7) !important;
+  font-family: inherit !important;
+  margin-top: 4px !important;
+  overflow: hidden !important;
+}
 
-  thead {
-    display: table-header-group;
-  }
+.pac-item {
+  border-top: 1px solid #282c38 !important;
+  padding: 8px 12px !important;
+  color: #e2e8f0 !important;
+  cursor: pointer !important;
+  line-height: 1.4 !important;
+}
 
-  tfoot {
-    display: table-footer-group;
-  }
+.pac-item:hover,
+.pac-item-selected {
+  background-color: #242938 !important;
+}
 
-  @page {
-    size: A4 portrait;
-    margin: 8mm 12mm;
-  }
+.pac-item-query {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+}
+
+.pac-matched {
+  color: #C5A059 !important;
+  font-weight: 700 !important;
+}
+
+.pac-icon {
+  filter: invert(1) brightness(0.8) !important;
 }
 

@@ -81,7 +81,13 @@ export function normalizePhoneNumber(rawPhone: string): {
 export function formatCustomerOrderConfirmationWhatsAppMessage(order: Order): string {
   // Format items: [PRODUCT NAME] × [QUANTITY]
   const productsListText = order.items
-    .map(item => `${item.product.name} (${item.product.size}) × ${item.quantity}`)
+    .map(item => {
+      if (item.isCustomDesign) {
+        return `${item.product.name} (${item.product.size}) × ${item.quantity} custom bottles`;
+      }
+      const qtyPacks = Math.round(item.quantity / 12);
+      return `${item.product.name} (${item.product.size}) × ${qtyPacks} QTY (${item.quantity} bottles)`;
+    })
     .join('\n');
 
   // Format order date & time
@@ -101,10 +107,21 @@ export function formatCustomerOrderConfirmationWhatsAppMessage(order: Order): st
     orderTimeStr = new Date().toLocaleString('en-IN');
   }
 
-  // Delivery address
-  const fullAddress = `${order.customer.address}, ${
-    order.customer.landmark ? order.customer.landmark + ', ' : ''
-  }${order.customer.city} - ${order.customer.pincode}`;
+  // Delivery or Pickup details
+  const isPickup = order.deliveryType === 'self_pickup';
+  const coords = order.deliveryCoordinates || order.customer.deliveryCoordinates;
+  const navLine = coords
+    ? `\n*GPS Navigation:* https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}${coords.gateNote ? ` (${coords.gateNote})` : ''}`
+    : '';
+
+  const deliverySection = isPickup
+    ? `*Fulfillment Method:* 🏬 Self Pickup (Direct Factory Collection)
+*Pickup Counter:*
+${order.pickupLocation || 'Factory Dispatch Counter #1, Plot 12, Sector V, Salt Lake, Kolkata - 700091'}
+*Pickup Hours:* ${order.pickupSlot || 'Mon - Sun: 8:30 AM - 8:30 PM (Ready in 30 mins)'}`
+    : `*Fulfillment Method:* 🚚 Doorstep Delivery (${order.deliveryDistanceKm ? `~${order.deliveryDistanceKm} km - Under 7 km zone` : 'Under 7 km factory radius'})
+*Delivery Address:*
+${order.customer.address}, ${order.customer.landmark ? order.customer.landmark + ', ' : ''}${order.customer.city} - ${order.customer.pincode}${navLine}`;
 
   return `🧾 *HH MINERAL WATER — ORDER CONFIRMATION*
 
@@ -121,8 +138,7 @@ ${productsListText}
 
 *Payment:* ${order.paymentMethod}
 
-*Delivery Address:*
-${fullAddress}
+${deliverySection}
 
 *Order Date:* ${orderTimeStr}
 
@@ -142,7 +158,10 @@ export function formatOrderWhatsAppMessage(order: Order): string {
     .map((item, idx) => {
       const customTag = item.isCustomDesign ? ' 🎨 [CUSTOM BRANDED LABEL]' : '';
       const totalItemPrice = item.unitPrice * item.quantity;
-      return `${idx + 1}. *${item.product.name}* (${item.product.size})${customTag}\n   • Qty: *${item.quantity} units* × ₹${item.unitPrice} = *₹${totalItemPrice}*`;
+      const qtyDesc = item.isCustomDesign
+        ? `${item.quantity} custom bottles`
+        : `${Math.round(item.quantity / 12)} QTY (${item.quantity} bottles)`;
+      return `${idx + 1}. *${item.product.name}* (${item.product.size})${customTag}\n   • Qty: *${qtyDesc}* (₹${item.unitPrice}/bottle) = *₹${totalItemPrice}*`;
     })
     .join('\n');
 
@@ -185,8 +204,28 @@ export function formatOrderWhatsAppMessage(order: Order): string {
     orderTimeStr = new Date().toLocaleString('en-IN');
   }
 
-  // Full address
-  const fullAddress = `${order.customer.address}, ${order.customer.landmark ? order.customer.landmark + ', ' : ''}${order.customer.city} - ${order.customer.pincode}`;
+  // Fulfillment details
+  const isPickup = order.deliveryType === 'self_pickup';
+  const customerAddress = [
+    order.customer.address,
+    order.customer.landmark ? `(Landmark: ${order.customer.landmark})` : '',
+    order.customer.city,
+    order.customer.pincode
+  ].filter(Boolean).join(', ');
+
+  const coords = order.deliveryCoordinates || order.customer.deliveryCoordinates;
+  const gpsSection = coords
+    ? `\n🗺️ *CUSTOMER GPS NAVIGATION (GOOGLE MAPS):*
+• *Turn-by-Turn Route:* https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}
+• *Pinned Coordinates:* ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}${coords.gateNote ? `\n• *Delivery / Entrance Note:* ${coords.gateNote}` : ''}`
+    : '';
+
+  const fulfillmentText = isPickup
+    ? `🏬 *FULFILLMENT:* SELF PICKUP AT FACTORY
+• *Pickup Counter:* ${order.pickupLocation || 'Factory Dispatch Counter #1, Plot 12, Sector V, Salt Lake, Kolkata'}
+• *Ready Window:* ${order.pickupSlot || 'Ready in 30 mins (Mon-Sun 8:30 AM - 8:30 PM)'}`
+    : `🚚 *FULFILLMENT:* DOORSTEP DELIVERY (${order.deliveryDistanceKm ? `~${order.deliveryDistanceKm} km - Under 7 km zone` : 'Under 7 km local radius'})
+• *Delivery Address:* ${customerAddress}${gpsSection}`;
 
   return `🛒 *NEW ORDER RECEIVED — HH MINERAL WATER*
 
@@ -197,15 +236,14 @@ export function formatOrderWhatsAppMessage(order: Order): string {
 👤 *CUSTOMER DETAILS:*
 • *Name:* ${order.customer.name}
 • *Phone:* ${order.customer.phone}
-${order.customer.email ? `• *Email:* ${order.customer.email}\n` : ''}📍 *Delivery Address:*
-${fullAddress}
+${order.customer.email ? `• *Email:* ${order.customer.email}\n` : ''}📍 ${fulfillmentText}
 
 🛍️ *ORDERED PRODUCTS:*
 ${productsListText}
 
 💰 *PAYMENT & BILLING:*
 • *Subtotal:* ₹${order.subtotal}
-• *Delivery Charge:* ${order.deliveryCharge === 0 ? 'FREE' : `₹${order.deliveryCharge}`}
+• *Delivery Charge:* ${order.deliveryCharge === 0 ? 'FREE (Self Pickup / Zero Charge)' : `₹${order.deliveryCharge}`}
 • *Grand Total:* *₹${order.totalAmount}*
 • *Payment Method:* ${order.paymentMethod}
 • *Payment Status:* ${order.paymentStatus}
@@ -218,6 +256,78 @@ ${productsListText}
 📄 *GST Tax Invoice:* Generated & recorded in HH Admin Portal.
 🏭 *HH MINERAL WATER BOTTLING & PACKAGING*
 Owner Phone: +91 8017341130 | Kolkata, West Bengal`;
+}
+
+/**
+ * Formats a dedicated delivery dispatch & Google Maps navigation message for the driver.
+ * Contains direct 1-tap Google Maps turn-by-turn navigation URL for customer location.
+ */
+export function formatDriverDeliveryNavigationMessage(order: Order, driverName?: string): string {
+  const coords = order.deliveryCoordinates || order.customer.deliveryCoordinates;
+  const addressQuery = [order.customer.address, order.customer.landmark, order.customer.city, order.customer.pincode]
+    .filter(Boolean)
+    .join(', ');
+
+  const googleMapsUrl = coords
+    ? `https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}`
+    : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addressQuery)}`;
+
+  const itemsList = order.items
+    .map(i => {
+      const packCount = Math.round(i.quantity / 12);
+      return `• ${i.product.name} (${i.product.size}) × ${packCount > 0 ? `${packCount} packs (` : ''}${i.quantity} bottles${packCount > 0 ? ')' : ''}`;
+    })
+    .join('\n');
+
+  const paymentCollectionInstruction = order.paymentStatus === 'Paid'
+    ? '✅ *ALREADY PAID ONLINE — DO NOT COLLECT CASH*'
+    : `💵 *COLLECT CASH ON DELIVERY: ₹${order.totalAmount}*`;
+
+  return `🚰 *HH MINERAL WATER — DRIVER DISPATCH & LIVE NAVIGATION*
+${driverName ? `*Assigned Driver:* ${driverName}\n` : ''}
+📦 *Order ID:* ${order.id}
+🧾 *Invoice:* ${order.invoiceNumber || 'Attached'}
+👤 *Customer:* ${order.customer.name}
+📞 *Call Customer:* ${order.customer.phone}
+
+🗺️ *GOOGLE MAPS TURN-BY-TURN NAVIGATION:*
+👉 ${googleMapsUrl}
+${coords ? `📍 *GPS Coordinates:* ${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : ''}
+${coords?.gateNote ? `🚪 *Delivery / Landmark Note:* ${coords.gateNote}` : ''}
+
+📍 *Delivery Address:*
+${order.customer.address}
+${order.customer.landmark ? `Landmark: ${order.customer.landmark}\n` : ''}${order.customer.city} - ${order.customer.pincode}
+
+🛍️ *Bottles / Crates to Deliver:*
+${itemsList}
+
+💰 *Payment Collection:*
+${paymentCollectionInstruction}
+• *Method:* ${order.paymentMethod}
+
+⚠️ *Driver Instructions:*
+1. Click the Google Maps link above for live turn-by-turn navigation directly to the customer's address.
+2. Verify bottle seals and print/share invoice upon delivery.
+3. Call customer if entry access is restricted.
+
+🏭 *Plant Dispatch:* +91 8017341130`;
+}
+
+/**
+ * Creates a WhatsApp share URL specifically targeted to a delivery driver.
+ */
+export function getDriverWhatsAppShareUrl(order: Order, driverPhone: string, driverName?: string): string {
+  const message = formatDriverDeliveryNavigationMessage(order, driverName);
+  const encoded = encodeURIComponent(message);
+  const cleanPhone = driverPhone.replace(/\D/g, '');
+  const target = cleanPhone.startsWith('91') && cleanPhone.length === 12
+    ? cleanPhone
+    : cleanPhone.length === 10
+    ? `91${cleanPhone}`
+    : cleanPhone;
+
+  return target ? `https://wa.me/${target}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
 }
 
 /**

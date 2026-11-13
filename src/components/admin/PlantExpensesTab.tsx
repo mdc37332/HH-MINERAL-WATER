@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PlantExpense } from '../../types';
 import { INITIAL_PLANT_EXPENSES } from '../../data/initialProducts';
 import { useStore } from '../../context/StoreContext';
+import { safeStorage } from '../../lib/storage';
 import {
   DollarSign,
   TrendingUp,
@@ -15,26 +16,50 @@ import {
   Trash2,
   PieChart,
   Tag,
-  AlertCircle
+  AlertCircle,
+  Scale
 } from 'lucide-react';
 
 interface PlantExpensesTabProps {
   totalRevenue: number;
   showToast?: (title: string, message: string, type?: 'success' | 'info' | 'warning' | 'error') => void;
+  onNavigateToAccounting?: () => void;
 }
 
-export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue, showToast: propShowToast }) => {
+export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue, showToast: propShowToast, onNavigateToAccounting }) => {
   const store = useStore();
   const showToast = propShowToast || store?.showToast || ((_t: string, _m: string) => {});
 
   const [expenses, setExpenses] = useState<PlantExpense[]>(() => {
     try {
-      const saved = localStorage.getItem('hh_plant_expenses');
-      return saved ? JSON.parse(saved) : INITIAL_PLANT_EXPENSES;
+      const wiped = safeStorage.getItem('hh_accounting_wiped_v1') === 'true';
+      const saved = safeStorage.getItem('hh_plant_expenses');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+      if (wiped) return [];
+      return INITIAL_PLANT_EXPENSES;
     } catch {
       return INITIAL_PLANT_EXPENSES;
     }
   });
+
+  useEffect(() => {
+    const syncExpenses = () => {
+      try {
+        const saved = safeStorage.getItem('hh_plant_expenses');
+        if (saved !== null) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            setExpenses(parsed);
+          }
+        }
+      } catch {}
+    };
+    window.addEventListener('hh_plant_expenses_updated', syncExpenses);
+    return () => window.removeEventListener('hh_plant_expenses_updated', syncExpenses);
+  }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -57,7 +82,8 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
   const saveExpenses = (updated: PlantExpense[]) => {
     setExpenses(updated);
     try {
-      localStorage.setItem('hh_plant_expenses', JSON.stringify(updated));
+      safeStorage.setItem('hh_plant_expenses', JSON.stringify(updated));
+      window.dispatchEvent(new Event('hh_plant_expenses_updated'));
     } catch (e) {
       console.warn('Failed to save expenses:', e);
     }
@@ -162,13 +188,16 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
       {/* Financial P&L Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-xs">
-          <span className="text-xs font-bold text-slate-400 block uppercase">Total Store Revenue</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 block uppercase">Product Revenue</span>
+            <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold">Excl. Delivery</span>
+          </div>
           <span className="font-heading text-2xl font-black text-slate-900 mt-1 block">
             ₹{totalRevenue.toLocaleString()}
           </span>
           <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1 mt-1">
             <TrendingUp className="w-3.5 h-3.5" />
-            Gross Invoiced Sales
+            Product Sales (Incl. 18% GST)
           </span>
         </div>
 
@@ -183,7 +212,10 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
         </div>
 
         <div className={`rounded-3xl p-5 border shadow-xs ${netProfit >= 0 ? 'bg-emerald-50/40 border-emerald-200' : 'bg-rose-50/40 border-rose-200'}`}>
-          <span className="text-xs font-bold text-slate-700 block uppercase">Net Operating Profit</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700 block uppercase">Net Operating Profit</span>
+            <span className="text-[10px] text-slate-500 font-semibold">Excl. Shipping</span>
+          </div>
           <span className={`font-heading text-2xl font-black mt-1 block ${netProfit >= 0 ? 'text-emerald-900' : 'text-rose-900'}`}>
             ₹{netProfit.toLocaleString()}
           </span>
@@ -201,6 +233,14 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
             Profit to Revenue Ratio
           </span>
         </div>
+      </div>
+
+      {/* Accounting Policy Notice */}
+      <div className="bg-cyan-50/80 border border-cyan-200/80 rounded-2xl p-3.5 text-xs text-cyan-950 flex items-center gap-2.5">
+        <AlertCircle className="w-4 h-4 text-cyan-700 shrink-0" />
+        <span>
+          <strong>Revenue & Profit Accounting Policy:</strong> Delivery charges are pass-through logistics costs (not business profit) and are excluded from revenue and operating profit calculations. All selling prices already include 18% GST (HSN 2201).
+        </span>
       </div>
 
       {/* Control Bar */}
@@ -239,6 +279,18 @@ export const PlantExpensesTab: React.FC<PlantExpensesTabProps> = ({ totalRevenue
             <FileDown className="w-3.5 h-3.5" />
             <span>Export CSV</span>
           </button>
+
+          {onNavigateToAccounting && (
+            <button
+              type="button"
+              onClick={onNavigateToAccounting}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-purple-50 hover:bg-purple-100 text-purple-900 border border-purple-200 text-xs font-bold transition-colors cursor-pointer"
+              title="Open Double-Entry Journal, General Ledger & CA Audit Suite"
+            >
+              <Scale className="w-3.5 h-3.5 text-purple-700" />
+              <span>Journal & CA Audit</span>
+            </button>
+          )}
 
           {expenses.length > 0 && (
             <button

@@ -3,23 +3,23 @@ import { Invoice, Order } from '../types';
 import { useStore } from '../context/StoreContext';
 import {
   Printer,
-  FileDown,
-  Share2,
   X,
-  Copy,
-  Check,
   Building,
   Receipt,
+  Loader2,
   ExternalLink,
-  Trash2,
-  Loader2
+  ShieldCheck,
+  Download,
+  Share2,
+  MessageCircle,
+  Sparkles
 } from 'lucide-react';
-import { getInvoiceShareWhatsAppUrl } from '../lib/whatsapp';
 import {
   printInvoiceDocument,
-  downloadInvoiceHtml,
   openInvoicePrintTab,
-  validateInvoiceForPrinting
+  validateInvoiceForPrinting,
+  ensureSanitizedInvoice,
+  downloadInvoicePdf
 } from '../lib/invoicePrintHelper';
 import { getFinancialYear } from '../lib/invoiceGenerator';
 
@@ -40,11 +40,9 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
   onClose,
   initialAutoPrint = false
 }) => {
-  const { deleteInvoice, showToast } = useStore();
+  const { showToast, isAdminUnlocked } = useStore();
+  const isAdmin = Boolean(isAdminUnlocked);
   const [copyType, setCopyType] = useState<'Original for Recipient' | 'Duplicate for Transporter' | 'Triplicate for Supplier'>('Original for Recipient');
-  const [copied, setCopied] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [printPhase, setPrintPhase] = useState<PrintPhase>('idle');
   const hasAutoPrintedRef = useRef(false);
 
@@ -53,6 +51,12 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
       hasAutoPrintedRef.current = false;
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isAdmin && copyType !== 'Original for Recipient') {
+      setCopyType('Original for Recipient');
+    }
+  }, [isAdmin, copyType]);
 
   const handlePrint = async () => {
     if (printPhase !== 'idle') return;
@@ -70,14 +74,14 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
 
     // Requirement 12: Print Button UI States: Loading -> Preparing invoice -> Opening print preview
     setPrintPhase('loading');
-    await new Promise((r) => setTimeout(r, 160));
+    await new Promise((r) => setTimeout(r, 120));
 
     setPrintPhase('preparing');
     document.body.classList.add('printing-gst-invoice');
-    await new Promise((r) => setTimeout(r, 220));
+    await new Promise((r) => setTimeout(r, 150));
 
     setPrintPhase('opening');
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 80));
 
     const cleanUp = () => {
       document.body.classList.remove('printing-gst-invoice');
@@ -88,22 +92,26 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
     window.addEventListener('afterprint', cleanUp, { once: true });
 
     try {
-      const printed = await printInvoiceDocument(invoice, copyType);
-      if (!printed) {
-        window.print();
+      const isEmbedded = typeof window !== 'undefined' && window.self !== window.top;
+      if (isEmbedded) {
+        // Direct window.print() is blocked inside sandboxed iframe without throwing; open print tab
+        openInvoicePrintTab(invoice, copyType);
+        try { window.print(); } catch {}
+        setTimeout(cleanUp, 600);
+      } else {
+        const printed = await printInvoiceDocument(invoice, copyType);
+        if (!printed) {
+          window.print();
+        }
+        setTimeout(cleanUp, 1500);
       }
     } catch (err) {
-      console.warn('Print helper error, attempting direct window.print:', err);
-      try {
-        window.print();
-      } catch (printErr) {
-        console.error('Direct print call failed:', printErr);
-        openInvoicePrintTab(invoice, copyType);
-        showToast?.('Print Notification', 'Opening standalone printable invoice in a new tab.', 'info');
-      }
+      console.warn('Print helper error, opening fallback print tab:', err);
+      openInvoicePrintTab(invoice, copyType);
+      cleanUp();
     } finally {
-      // Safety timer so styles aren't cleared prematurely during rasterization
-      setTimeout(cleanUp, 20000);
+      // Safety timer so styles and UI state aren't left stuck
+      setTimeout(cleanUp, 2500);
     }
   };
 
@@ -120,43 +128,26 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
 
   if (!isOpen || !invoice) return null;
 
-  const handleDownload = () => {
-    downloadInvoiceHtml(invoice, copyType);
-  };
+  const safeInvoice = ensureSanitizedInvoice(invoice);
+  const taxableAmount = Number(safeInvoice.taxableAmount ?? 0);
+  const cgstAmount = Number(safeInvoice.cgstAmount ?? 0);
+  const sgstAmount = Number(safeInvoice.sgstAmount ?? 0);
+  const igstAmount = Number(safeInvoice.igstAmount ?? 0);
 
-  const handleOpenInNewTab = () => {
-    openInvoicePrintTab(invoice, copyType);
-  };
-
-  const confirmDelete = async () => {
-    setIsDeleting(true);
-    try {
-      await deleteInvoice(invoice.id);
-      setShowDeleteConfirm(false);
-      onClose();
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  const taxableAmount = Number(invoice.taxableAmount ?? 0);
-  const cgstAmount = Number(invoice.cgstAmount ?? 0);
-  const sgstAmount = Number(invoice.sgstAmount ?? 0);
-  const igstAmount = Number(invoice.igstAmount ?? 0);
-
-  const company = invoice.companyDetails || ({} as any);
-  const customer = invoice.customerDetails || ({} as any);
+  const company = safeInvoice.companyDetails || ({} as any);
+  const customer = safeInvoice.customerDetails || ({} as any);
   const bank = company.bankDetails || ({} as any);
-  const items = invoice.items || [];
+  const items = safeInvoice.items || [];
 
   // Determine if Inter-State (IGST) or Intra-State (CGST + SGST)
   const isInterState = igstAmount > 0 || (customer.stateCode && company.stateCode && customer.stateCode !== company.stateCode);
-  const totalGstAmount = Number(invoice.totalGstAmount ?? (isInterState ? igstAmount : cgstAmount + sgstAmount));
-  const deliveryCharge = Number(invoice.deliveryCharge ?? 0);
-  const discount = Number(invoice.discount ?? 0);
-  const grandTotal = Number(invoice.grandTotal ?? 0);
+  const totalGstAmount = Number(safeInvoice.totalGstAmount ?? (isInterState ? igstAmount : cgstAmount + sgstAmount));
+  const deliveryCharge = Number(safeInvoice.deliveryCharge ?? 0);
+  const discount = Number(safeInvoice.discount ?? 0);
+  const subtotal = Number(safeInvoice.subtotal ?? (items.reduce((acc, i) => acc + (i.totalAmount ?? 0), 0)));
+  const grandTotal = Number(safeInvoice.grandTotal ?? 0);
 
-  const safeDate = invoice.invoiceDate ? new Date(invoice.invoiceDate) : new Date();
+  const safeDate = safeInvoice.invoiceDate ? new Date(safeInvoice.invoiceDate) : new Date();
   const isValidDate = !isNaN(safeDate.getTime());
   const formattedDate = isValidDate
     ? safeDate.toLocaleDateString('en-IN', {
@@ -174,26 +165,57 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
       })
     : '12:00 PM';
 
-  const financialYear = invoice.financialYear || getFinancialYear(safeDate);
+  const financialYear = safeInvoice.financialYear || getFinancialYear(safeDate);
 
-  const handleCopyDetails = () => {
-    const text = `HH MINERAL WATER - TAX INVOICE
-Invoice No: ${invoice.invoiceNumber}
-Financial Year: ${financialYear}
-Order ID: ${invoice.orderId}
-Customer: ${customer?.name || 'Customer'} (${customer?.phone || ''})
-Total Amount: ₹${grandTotal} (${invoice.grandTotalInWords || ''})
-Payment: ${invoice.paymentMethod || 'Online'} (${invoice.paymentStatus || 'Paid'})
-Date: ${formattedDate}`;
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleDownloadPdf = async () => {
+    if (isDownloadingPdf) return;
+    setIsDownloadingPdf(true);
+    try {
+      const success = await downloadInvoicePdf(safeInvoice, copyType);
+      if (success) {
+        showToast?.('PDF Saved', `Downloaded official A4 PDF for ${safeInvoice.invoiceNumber}.`, 'success');
+      } else {
+        showToast?.('Invoice Downloaded', 'Saved offline invoice file.', 'info');
+      }
+    } catch (err: any) {
+      console.error('PDF download error:', err);
+      showToast?.('Download Error', err?.message || 'Failed to download PDF invoice.', 'error');
+    } finally {
+      setIsDownloadingPdf(false);
+    }
   };
 
-  const shareWhatsAppUrl = order 
-    ? getInvoiceShareWhatsAppUrl(order, invoice.invoiceNumber, grandTotal, customer?.phone || '')
-    : `https://wa.me/?text=${encodeURIComponent(`HH Mineral Water Tax Invoice ${invoice.invoiceNumber} for ₹${grandTotal}`)}`;
+  const handleShareWhatsApp = () => {
+    const customerPhone = (safeInvoice.customerDetails?.phone || '').replace(/\D/g, '');
+    const cleanCustomerNumber = customerPhone.length >= 10 ? (customerPhone.startsWith('91') ? customerPhone : '91' + customerPhone.slice(-10)) : '';
+
+    const lines = [
+      `*HH MINERAL WATER - OFFICIAL GST TAX INVOICE*`,
+      `📄 *Invoice No:* ${safeInvoice.invoiceNumber}`,
+      `📅 *Date:* ${formattedDate}`,
+      `👤 *Customer:* ${safeInvoice.customerDetails?.name || 'Valued Customer'}`,
+      `🏷️ *Order ID:* ${safeInvoice.orderId}`,
+      ``,
+      `*Items Purchased:*`,
+      ...safeInvoice.items.map((it, i) => `${i + 1}. ${it.productName} — ${it.quantity} pcs @ ₹${it.unitPrice.toFixed(2)} = ₹${it.totalAmount.toFixed(2)}`),
+      ``,
+      `*Taxable Amount:* ₹${safeInvoice.taxableAmount.toFixed(2)}`,
+      `*GST (18% HSN 2201):* ₹${safeInvoice.totalGstAmount.toFixed(2)}`,
+      safeInvoice.deliveryCharge ? `*Delivery Charges:* ₹${safeInvoice.deliveryCharge.toFixed(2)}` : null,
+      `*Grand Total:* ₹${safeInvoice.grandTotal.toFixed(2)}`,
+      `*Payment Status:* ${safeInvoice.paymentStatus || 'Paid'} (${safeInvoice.paymentMethod || 'Online'})`,
+      ``,
+      `Thank you for hydrating with HH Mineral Water!`,
+      `Plant Helpline: +91 8017341130 • Kolkata, WB`
+    ].filter(Boolean).join('\n');
+
+    const phoneParam = cleanCustomerNumber ? `phone=${cleanCustomerNumber}&` : '';
+    const whatsappUrl = `https://api.whatsapp.com/send?${phoneParam}text=${encodeURIComponent(lines)}`;
+    window.open(whatsappUrl, '_blank');
+    showToast?.('Opening WhatsApp', 'Sharing official tax invoice summary on WhatsApp.', 'info');
+  };
 
   const getPrintButtonText = (isPrimary: boolean = false) => {
     switch (printPhase) {
@@ -209,93 +231,89 @@ Date: ${formattedDate}`;
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 md:p-6 print:p-0 print:bg-white print:static gst-invoice-modal-backdrop">
-      <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[96vh] print:max-h-none print:shadow-none print:border-none print:rounded-none print:w-full print:overflow-visible gst-invoice-modal-card">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 md:p-6 print:p-0 print:bg-white print:static gst-invoice-modal-backdrop">
+      <div className="bg-[#121212] w-full max-w-4xl rounded-2xl shadow-2xl border border-[#262626] overflow-hidden flex flex-col max-h-[96vh] print:max-h-none print:shadow-none print:border-none print:rounded-none print:w-full print:overflow-visible gst-invoice-modal-card">
         
         {/* Action Header - Hidden during print */}
-        <div className="bg-slate-900 text-white px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3 border-b border-slate-800 print:hidden shrink-0">
+        <div className="bg-black text-white px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3 border-b border-[#262626] print:hidden shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-[#1c1913] text-[#C5A059] border border-[#C5A059]/30 flex items-center justify-center">
               <Receipt className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs uppercase tracking-wider font-bold text-cyan-400">GST Tax Invoice</span>
-                <span className="bg-cyan-950 text-cyan-300 border border-cyan-700/50 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold">
-                  {invoice.invoiceNumber}
+                <span className="text-xs uppercase tracking-wider font-bold text-[#DFC283]">GST Tax Invoice</span>
+                <span className="bg-[#1a1710] text-[#DFC283] border border-[#C5A059]/40 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold">
+                  {safeInvoice.invoiceNumber}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">Order ID: {invoice.orderId} • FY: {financialYear}</p>
+              <p className="text-[11px] text-neutral-400">Order ID: {safeInvoice.orderId} • FY: {financialYear}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
+              id="btn-header-pdf-invoice"
+              onClick={handleDownloadPdf}
+              disabled={isDownloadingPdf}
+              className="flex items-center gap-1.5 bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer shadow-xs disabled:opacity-70"
+              title="Download official A4 PDF tax invoice"
+            >
+              {isDownloadingPdf ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
+              ) : (
+                <Download className="w-3.5 h-3.5 text-black" />
+              )}
+              <span>PDF</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-header-whatsapp-invoice"
+              onClick={handleShareWhatsApp}
+              className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold px-2.5 py-2 rounded-xl transition-colors cursor-pointer shadow-xs"
+              title="Share invoice summary on WhatsApp"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">WhatsApp</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-header-print-invoice"
               onClick={handlePrint}
               disabled={printPhase !== 'idle'}
-              className="flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer disabled:opacity-75"
-              title="Print or Save as PDF"
+              className="flex items-center gap-1.5 bg-[#1c1c1c] hover:bg-[#252525] text-neutral-200 text-xs font-semibold px-3 py-2 rounded-xl transition-colors cursor-pointer border border-[#333333] disabled:opacity-70"
+              title="Print official GST Tax Invoice"
             >
               {printPhase !== 'idle' ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C5A059]" />
               ) : (
-                <Printer className="w-3.5 h-3.5" />
+                <Printer className="w-3.5 h-3.5 text-[#C5A059]" />
               )}
               <span className="hidden sm:inline">{getPrintButtonText(false)}</span>
             </button>
 
             <button
-              onClick={handleDownload}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer border border-slate-700"
-              title="Download Offline Printable Invoice (HTML/PDF ready)"
+              type="button"
+              id="btn-header-open-tab"
+              onClick={() => {
+                openInvoicePrintTab(safeInvoice, copyType);
+                showToast?.('Invoice Tab Opened', 'Official GST invoice opened in a separate printable tab.', 'success');
+              }}
+              className="hidden md:flex items-center gap-1.5 bg-[#1c1c1c] hover:bg-[#252525] text-neutral-300 text-xs font-medium px-2.5 py-2 rounded-xl transition-colors cursor-pointer border border-[#333333]"
+              title="Open full invoice in a separate window/tab"
             >
-              <FileDown className="w-3.5 h-3.5 text-cyan-400" />
-              <span className="hidden sm:inline">Download</span>
-            </button>
-
-            <button
-              onClick={handleOpenInNewTab}
-              className="hidden md:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer border border-slate-700"
-              title="Open full-page printable invoice in new tab"
-            >
-              <ExternalLink className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Full Tab</span>
-            </button>
-
-            <a
-              href={shareWhatsAppUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors"
-              title="Share via WhatsApp"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">WhatsApp</span>
-            </a>
-
-            <button
-              onClick={handleCopyDetails}
-              className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
-              title="Copy details"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              <ExternalLink className="w-3.5 h-3.5 text-[#C5A059]" />
+              <span>New Tab</span>
             </button>
 
             <button
               type="button"
-              id="btn-trigger-delete-invoice"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={isDeleting}
-              className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg shadow-sm transition-colors cursor-pointer disabled:opacity-50"
-              title="Delete this GST Tax Invoice"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Delete</span>
-            </button>
-
-            <button
+              id="btn-header-close-invoice"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              className="p-2 text-neutral-400 hover:text-white hover:bg-[#222222] rounded-xl transition-colors cursor-pointer ml-1"
               title="Close invoice"
             >
               <X className="w-5 h-5" />
@@ -303,71 +321,79 @@ Date: ${formattedDate}`;
           </div>
         </div>
 
-        {/* Delete Confirmation Alert Banner */}
-        {showDeleteConfirm && (
-          <div className="bg-rose-50 border-b border-rose-200 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3 text-xs text-rose-900 print:hidden">
-            <div className="flex items-center gap-2">
-              <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
-              <span className="font-semibold">
-                Delete GST Tax Invoice #{invoice.invoiceNumber}? This will remove it from the register.
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isDeleting}
-                className="px-3 py-1 rounded-lg text-slate-600 bg-white border border-slate-300 font-bold hover:bg-slate-50 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                id="btn-confirm-delete-invoice"
-                onClick={confirmDelete}
-                disabled={isDeleting}
-                className="px-3 py-1 rounded-lg text-white bg-rose-600 hover:bg-rose-700 font-bold shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>{isDeleting ? 'Deleting...' : 'Confirm Delete'}</span>
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Copy Selector Bar - Hidden during print */}
-        <div className="bg-slate-100 px-4 sm:px-6 py-2 border-b border-slate-200 flex items-center justify-between text-xs print:hidden shrink-0">
-          <div className="flex items-center gap-1.5 text-slate-600 font-medium">
+        <div className="bg-[#181818] px-4 sm:px-6 py-2 border-b border-[#262626] flex items-center justify-between text-xs print:hidden shrink-0">
+          <div className="flex items-center gap-1.5 text-neutral-300 font-medium">
             <span>Invoice Copy:</span>
-            <div className="inline-flex rounded-lg bg-white p-0.5 border border-slate-300">
-              {(['Original for Recipient', 'Duplicate for Transporter', 'Triplicate for Supplier'] as const).map((type) => (
-                <button
-                  key={type}
-                  onClick={() => setCopyType(type)}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                    copyType === type
-                      ? 'bg-cyan-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {type}
-                </button>
-              ))}
+            <div className="inline-flex rounded-lg bg-[#121212] p-0.5 border border-[#2e2e2e]">
+              <button
+                type="button"
+                id="btn-invoice-copy-recipient"
+                onClick={() => setCopyType('Original for Recipient')}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                  copyType === 'Original for Recipient'
+                    ? 'bg-gradient-to-r from-[#C5A059] to-[#D4AF37] text-black font-bold shadow-xs'
+                    : 'text-neutral-400 hover:text-white'
+                }`}
+                title="Customer Copy: Original for Recipient"
+              >
+                Original for Recipient
+              </button>
+
+              {isAdmin && (
+                <>
+                  <button
+                    type="button"
+                    id="btn-invoice-copy-transporter"
+                    onClick={() => setCopyType('Duplicate for Transporter')}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                      copyType === 'Duplicate for Transporter'
+                        ? 'bg-gradient-to-r from-[#C5A059] to-[#D4AF37] text-black font-bold shadow-xs'
+                        : 'text-neutral-300 hover:text-[#DFC283] hover:bg-[#1a1a1a]'
+                    }`}
+                    title="Admin Only: Duplicate for Transporter"
+                  >
+                    <span>Duplicate for Transporter</span>
+                    <span className="text-[9px] font-black uppercase text-black bg-[#C5A059] px-1 py-0.2 rounded-xs">Admin</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    id="btn-invoice-copy-supplier"
+                    onClick={() => setCopyType('Triplicate for Supplier')}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                      copyType === 'Triplicate for Supplier'
+                        ? 'bg-gradient-to-r from-[#C5A059] to-[#D4AF37] text-black font-bold shadow-xs'
+                        : 'text-neutral-300 hover:text-[#DFC283] hover:bg-[#1a1a1a]'
+                    }`}
+                    title="Admin Only: Triplicate for Supplier"
+                  >
+                    <span>Triplicate for Supplier</span>
+                    <span className="text-[9px] font-black uppercase text-black bg-[#C5A059] px-1 py-0.2 rounded-xs">Admin</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
-          <div className="hidden sm:flex items-center gap-2 text-[11px] text-slate-500">
+          <div className="hidden sm:flex items-center gap-2 text-[11px] text-neutral-400">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             <span>Digitally Verified Indian GST Tax Invoice</span>
+            {isAdmin && (
+              <span className="ml-2 inline-flex items-center gap-1 text-[10px] text-[#DFC283] bg-[#1c1913] border border-[#C5A059]/40 px-2 py-0.5 rounded-full font-bold">
+                <ShieldCheck className="w-3 h-3 text-[#C5A059]" />
+                <span>Admin Mode</span>
+              </span>
+            )}
           </div>
         </div>
 
         {/* --- INVOICE PRINTABLE DOCUMENT CONTAINER --- */}
-        <div className="overflow-y-auto p-4 sm:p-8 space-y-6 text-slate-900 font-sans text-xs bg-white print:p-0 print:overflow-visible print:w-full" id="printable-gst-invoice">
+        <div className="overflow-y-auto p-4 sm:p-8 space-y-6 text-slate-900 font-sans text-xs bg-white print:p-0 print:m-0 print:overflow-visible print:w-full print:space-y-2" id="printable-gst-invoice">
           
           {/* Header Banner */}
           <div className="border-b-2 border-slate-900 pb-4 avoid-break print-avoid-break">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex flex-col sm:flex-row print:flex-row items-start sm:items-center print:items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl bg-cyan-700 text-white flex flex-col items-center justify-center font-black shadow-md border border-cyan-800 shrink-0">
                   <span className="text-xl font-heading leading-none">HH</span>
@@ -401,7 +427,7 @@ Date: ${formattedDate}`;
           </div>
 
           {/* Supplier & Invoice Meta Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-300 rounded-xl overflow-hidden text-xs avoid-break print-avoid-break">
+          <div className="grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-4 border border-slate-300 rounded-xl overflow-hidden text-xs avoid-break print-avoid-break">
             {/* Supplier / Seller Info */}
             <div className="p-3.5 bg-slate-50/70 border-b md:border-b-0 md:border-r border-slate-300 space-y-1.5">
               <div className="font-bold text-[11px] uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1 flex items-center justify-between">
@@ -497,7 +523,7 @@ Date: ${formattedDate}`;
           </div>
 
           {/* Customer / Billed To & Shipped To */}
-          <div className="border border-slate-300 rounded-xl overflow-hidden grid grid-cols-1 md:grid-cols-2 text-xs avoid-break print-avoid-break">
+          <div className="border border-slate-300 rounded-xl overflow-hidden grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 text-xs avoid-break print-avoid-break">
             {/* Bill To */}
             <div className="p-3.5 bg-slate-50/50 border-b md:border-b-0 md:border-r border-slate-300 space-y-1">
               <div className="font-bold text-[11px] uppercase tracking-wider text-slate-700 border-b border-slate-200 pb-1">
@@ -547,6 +573,54 @@ Date: ${formattedDate}`;
               </div>
             </div>
           </div>
+
+          {/* Custom Label Branding Specifications Card */}
+          {(safeInvoice.customLabelDetails || order?.customLabelDetails) && (
+            <div className="border border-purple-200 bg-purple-50/70 rounded-xl p-3.5 space-y-2 avoid-break print-avoid-break">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-700" />
+                  <span className="font-bold text-xs uppercase tracking-wider text-purple-900">
+                    Custom Label & Personalized Branding Specifications
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-purple-200/80 text-purple-800 px-2 py-0.5 rounded-full">
+                  Client Edition
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div>
+                  <span className="text-purple-600 font-medium block text-[10px]">Brand / Client Name</span>
+                  <span className="font-bold text-slate-900">
+                    {safeInvoice.customLabelDetails?.brandName || order?.customLabelDetails?.brandName || customer.name}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-purple-600 font-medium block text-[10px]">Occasion / Event</span>
+                  <span className="font-bold text-slate-900">
+                    {safeInvoice.customLabelDetails?.eventType || order?.customLabelDetails?.eventType || 'Custom Branding'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-purple-600 font-medium block text-[10px]">Label Finish</span>
+                  <span className="font-bold text-slate-900">
+                    {safeInvoice.customLabelDetails?.finishType || order?.customLabelDetails?.finishType || 'Matte Luxury'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-purple-600 font-medium block text-[10px]">Bottle Cap</span>
+                  <span className="font-bold text-slate-900">
+                    {safeInvoice.customLabelDetails?.bottleCapColor || order?.customLabelDetails?.bottleCapColor || 'Royal Gold'}
+                  </span>
+                </div>
+              </div>
+              {(safeInvoice.customLabelDetails?.specialInstructions || order?.customLabelDetails?.specialInstructions) && (
+                <p className="text-[11px] text-purple-800 pt-1 border-t border-purple-200/70 italic">
+                  Note: {safeInvoice.customLabelDetails?.specialInstructions || order?.customLabelDetails?.specialInstructions}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Itemized Table */}
           <div className="border border-slate-300 rounded-xl overflow-hidden">
@@ -618,9 +692,9 @@ Date: ${formattedDate}`;
           </div>
 
           {/* Totals & Tax Breakdown Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 avoid-break print-avoid-break">
+          <div className="grid grid-cols-1 md:grid-cols-12 print:grid-cols-12 gap-4 avoid-break print-avoid-break">
             {/* Left: GST Tax Summary & Bank Details */}
-            <div className="md:col-span-7 space-y-4">
+            <div className="md:col-span-7 print:col-span-7 space-y-4">
               
               {/* HSN Tax Summary Table */}
               <div className="border border-slate-300 rounded-xl overflow-hidden">
@@ -693,34 +767,39 @@ Date: ${formattedDate}`;
             </div>
 
             {/* Right: Calculations & Grand Total */}
-            <div className="md:col-span-5 space-y-3">
+            <div className="md:col-span-5 print:col-span-5 space-y-3">
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-300 space-y-2 text-xs">
+                <div className="flex justify-between text-slate-700 pb-1.5 border-b border-slate-200">
+                  <span className="font-bold">Item Subtotal (Selling Price Incl. 18% GST):</span>
+                  <span className="font-bold text-slate-900">₹{subtotal.toFixed(2)}</span>
+                </div>
+
                 <div className="flex justify-between text-slate-600">
-                  <span>Total Taxable Amount:</span>
+                  <span className="pl-1">↳ Taxable Value (Net):</span>
                   <span className="font-semibold text-slate-800">₹{taxableAmount.toFixed(2)}</span>
                 </div>
 
                 {isInterState ? (
                   <div className="flex justify-between text-slate-600">
-                    <span>Integrated GST (IGST @ 18%):</span>
+                    <span className="pl-1">↳ Integrated GST (IGST @ 18%):</span>
                     <span className="font-semibold text-slate-800">+ ₹{igstAmount.toFixed(2)}</span>
                   </div>
                 ) : (
                   <>
                     <div className="flex justify-between text-slate-600">
-                      <span>Central GST (CGST @ 9%):</span>
+                      <span className="pl-1">↳ Central GST (CGST @ 9%):</span>
                       <span className="font-semibold text-slate-800">+ ₹{cgstAmount.toFixed(2)}</span>
                     </div>
 
                     <div className="flex justify-between text-slate-600">
-                      <span>State GST (SGST @ 9%):</span>
+                      <span className="pl-1">↳ State GST (SGST @ 9%):</span>
                       <span className="font-semibold text-slate-800">+ ₹{sgstAmount.toFixed(2)}</span>
                     </div>
                   </>
                 )}
 
-                <div className="flex justify-between text-slate-600">
-                  <span>Delivery & Handling Charge:</span>
+                <div className="flex justify-between text-slate-600 pt-1.5 border-t border-slate-200">
+                  <span>Delivery & Handling (Pass-Through Logistics):</span>
                   <span className="font-semibold text-slate-800">
                     {deliveryCharge > 0 ? `+ ₹${deliveryCharge.toFixed(2)}` : 'FREE'}
                   </span>
@@ -729,19 +808,23 @@ Date: ${formattedDate}`;
                 {discount > 0 && (
                   <div className="flex justify-between text-emerald-600">
                     <span>Promotional Discount:</span>
-                    <span className="font-semibold">- ₹${discount.toFixed(2)}</span>
+                    <span className="font-semibold">- ₹{discount.toFixed(2)}</span>
                   </div>
                 )}
 
                 <div className="border-t-2 border-slate-900 pt-2 flex justify-between items-baseline">
                   <div>
                     <span className="font-heading text-sm font-black text-slate-900 block">Grand Total</span>
-                    <span className="text-[10px] text-slate-500">(Inclusive of all Taxes)</span>
+                    <span className="text-[10px] text-slate-500">(18% GST Included • Net Due)</span>
                   </div>
                   <span className="font-heading text-xl font-black text-cyan-800">
                     ₹{grandTotal.toFixed(2)}
                   </span>
                 </div>
+
+                <p className="text-[10px] text-slate-500 pt-1 italic">
+                  * Note: 18% GST is already included in the bottle selling price. Delivery fee is pass-through carrier shipping cost and excluded from business revenue.
+                </p>
               </div>
 
               {/* Amount in Words */}
@@ -753,12 +836,12 @@ Date: ${formattedDate}`;
           </div>
 
           {/* Terms & Conditions and Signature Area */}
-          <div className="border-t border-slate-300 pt-4 grid grid-cols-1 md:grid-cols-2 gap-6 text-[10px] avoid-break print-avoid-break">
+          <div className="border-t border-slate-300 pt-4 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-6 text-[10px] avoid-break print-avoid-break">
             {/* Terms */}
             <div className="space-y-1">
               <span className="font-bold text-slate-800 uppercase tracking-wider block">Terms & Conditions</span>
               <p className="text-slate-600 whitespace-pre-line leading-relaxed">
-                {company.invoiceTerms || '1. Goods once sold will not be taken back or exchanged.\n2. Invoices are subject to local jurisdiction.\n3. Storage: Keep in a cool, dry place away from direct sunlight.'}
+                {company.invoiceTerms || '1. Goods once sold will not be taken back or exchanged.\n2. Invoices are subject to local jurisdiction.\n3. Storage: Keep in a dry place away from direct sunlight.'}
               </p>
             </div>
 
@@ -796,55 +879,52 @@ Date: ${formattedDate}`;
             </span>
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              id="btn-bottom-pdf-invoice"
+              onClick={handleDownloadPdf}
+              disabled={isDownloadingPdf}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black font-bold text-xs px-4 py-2 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-70"
+              title="Download official A4 PDF tax invoice"
+            >
+              {isDownloadingPdf ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
+              ) : (
+                <Download className="w-3.5 h-3.5 text-black" />
+              )}
+              <span>Download PDF</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-bottom-whatsapp-invoice"
+              onClick={handleShareWhatsApp}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs transition-colors cursor-pointer"
+              title="Share invoice summary on WhatsApp"
+            >
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>WhatsApp</span>
+            </button>
+
             <button
               type="button"
               id="btn-bottom-print-invoice"
               onClick={handlePrint}
               disabled={printPhase !== 'idle'}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-gradient-to-r from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 active:scale-[0.98] text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer disabled:opacity-75 ring-2 ring-cyan-400/30"
-              title="Print official GST Tax Invoice or Save as PDF"
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold text-xs px-4 py-2 rounded-xl shadow-xs transition-colors cursor-pointer disabled:opacity-70"
+              title="Print official GST Tax Invoice"
             >
               {printPhase !== 'idle' ? (
-                <Loader2 className="w-4 h-4 text-white animate-spin shrink-0" />
+                <Loader2 className="w-3.5 h-3.5 text-slate-800 animate-spin shrink-0" />
               ) : (
-                <Printer className="w-4 h-4 text-white shrink-0" />
+                <Printer className="w-3.5 h-3.5 text-slate-800 shrink-0" />
               )}
-              <span className="font-bold tracking-wide">{getPrintButtonText(true)}</span>
+              <span>Print</span>
             </button>
-
-            <button
-              onClick={handleDownload}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs transition-colors cursor-pointer"
-              title="Download standalone HTML invoice"
-            >
-              <FileDown className="w-3.5 h-3.5 text-cyan-600" />
-              <span>Download</span>
-            </button>
-
-            <a
-              href={shareWhatsAppUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-xs transition-colors"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span>Share</span>
-            </a>
 
             <button
               type="button"
-              id="btn-footer-delete-invoice"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={isDeleting}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs px-3.5 py-2 rounded-xl transition-colors cursor-pointer disabled:opacity-50"
-              title="Permanently remove this GST invoice"
-            >
-              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-              <span>Delete</span>
-            </button>
-
-            <button
               onClick={onClose}
               className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-white text-xs font-semibold transition-colors cursor-pointer"
             >

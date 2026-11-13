@@ -30,6 +30,8 @@ import {
 } from 'firebase/auth';
 import { Product, Order, OrderStatus, AdminSettings, CustomerProfile, CustomerAddress, ProductAuditLog, Invoice, WhatsAppNotificationState } from '../types';
 import { INITIAL_PRODUCTS, DEFAULT_ADMIN_SETTINGS } from '../data/initialProducts';
+import { DEFAULT_BOTTLE_IMAGE } from '../data/bottlePresets';
+import { safeStorage } from './storage';
 import firebaseConfigJson from '../../firebase-applet-config.json';
 
 // Initialize Firebase
@@ -127,6 +129,70 @@ export function sanitizeForFirestore<T>(data: T): T {
   );
 }
 
+// Dedicated sanitizer for orders in Firestore to protect against the 1MB document limit
+export function sanitizeOrderForFirestore(order: Order): Order {
+  if (!order || typeof order !== 'object') return order;
+  const copy: Order = JSON.parse(JSON.stringify(order));
+
+  if (Array.isArray(copy.items)) {
+    copy.items = copy.items.map(item => {
+      if (!item || typeof item !== 'object') return item;
+      const itemCopy = { ...item };
+
+      // Replace oversized base64 product images inside items (>80KB)
+      if (
+        itemCopy.product?.image &&
+        typeof itemCopy.product.image === 'string' &&
+        itemCopy.product.image.startsWith('data:') &&
+        itemCopy.product.image.length > 80000
+      ) {
+        itemCopy.product = {
+          ...itemCopy.product,
+          image: DEFAULT_BOTTLE_IMAGE
+        };
+      }
+
+      // Safeguard custom design attachments (keep full copy in PostgreSQL, store lightweight token in Firestore)
+      if (itemCopy.customDesignDetails) {
+        const cd = { ...itemCopy.customDesignDetails };
+        if (Array.isArray(cd.uploadedImages)) {
+          cd.uploadedImages = cd.uploadedImages.map((img: any) => {
+            if (typeof img?.url === 'string' && img.url.startsWith('data:') && img.url.length > 80000) {
+              return {
+                ...img,
+                url: `[Stored in Cloud SQL - ${img.name || 'Custom Image'} (${Math.round(img.sizeKb || img.url.length / 1333)} KB)]`
+              };
+            }
+            return img;
+          });
+        }
+        itemCopy.customDesignDetails = cd;
+      }
+
+      return itemCopy;
+    });
+  }
+
+  // Ensure byte size remains comfortably under the 1MB Firestore boundary
+  try {
+    const serialized = JSON.stringify(copy);
+    if (new TextEncoder().encode(serialized).length > 850000) {
+      console.warn(`[FIRESTORE GUARD] Order ${copy.id} exceeds 850KB payload. Trimming history for Firestore.`);
+      if (Array.isArray(copy.statusHistory) && copy.statusHistory.length > 8) {
+        copy.statusHistory = copy.statusHistory.slice(-8);
+      }
+    }
+  } catch {}
+
+  return sanitizeForFirestore(copy);
+}
+
+// Dedicated sanitizer for invoices in Firestore
+export function sanitizeInvoiceForFirestore(invoice: Invoice): Invoice {
+  if (!invoice || typeof invoice !== 'object') return invoice;
+  return sanitizeForFirestore(invoice);
+}
+
 // ----------------------------------------------------
 // Customer Authentication Functions
 // ----------------------------------------------------
@@ -151,6 +217,10 @@ export async function registerWithEmail(
   // Set display name in Firebase Auth
   await updateProfile(user, { displayName: fullName });
 
+  const isAuthorizedAdmin = Boolean(
+    email && ['mdhussain170707@gmail.com', 'mdc37332@gmail.com'].includes(email.toLowerCase())
+  );
+
   // Save full profile in Firestore
   const newProfile: CustomerProfile = {
     uid: user.uid,
@@ -159,12 +229,12 @@ export async function registerWithEmail(
     phone: mobileNumber,
     addresses: [],
     createdAt: new Date().toISOString(),
-    role: 'customer'
+    role: isAuthorizedAdmin ? 'admin' : 'customer'
   };
 
   try {
     await setDoc(doc(db, 'users', user.uid), newProfile, { merge: true });
-    localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(newProfile));
+    safeStorage.setItem(LS_PROFILE_KEY, JSON.stringify(newProfile));
   } catch (err) {
     if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
       handleFirestoreError(err, OperationType.WRITE, `users/${user.uid}`);
@@ -193,7 +263,7 @@ export async function changeCustomerPassword(newPass: string): Promise<void> {
 
 export async function logoutCustomer(): Promise<void> {
   await signOut(auth);
-  localStorage.removeItem(LS_PROFILE_KEY);
+  safeStorage.removeItem(LS_PROFILE_KEY);
 }
 
 // ----------------------------------------------------
@@ -204,22 +274,30 @@ export async function ensureCustomerProfileDoc(user: User): Promise<CustomerProf
   try {
     const userDocRef = doc(db, 'users', user.uid);
     const snap = await getDoc(userDocRef);
+    const isAuthorizedAdmin = Boolean(
+      user.email && ['mdhussain170707@gmail.com', 'mdc37332@gmail.com'].includes(user.email.toLowerCase())
+    );
+
     if (snap.exists()) {
       const data = snap.data() as CustomerProfile;
-      localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(data));
+      if (isAuthorizedAdmin && data.role !== 'admin') {
+        data.role = 'admin';
+        await setDoc(userDocRef, { role: 'admin' }, { merge: true });
+      }
+      safeStorage.setItem(LS_PROFILE_KEY, JSON.stringify(data));
       return data;
     } else {
       const defaultProfile: CustomerProfile = {
         uid: user.uid,
         email: user.email || '',
-        displayName: user.displayName || 'Customer',
+        displayName: user.displayName || (isAuthorizedAdmin ? 'Authorized Admin' : 'Customer'),
         phone: user.phoneNumber || '',
         addresses: [],
         createdAt: new Date().toISOString(),
-        role: 'customer'
+        role: isAuthorizedAdmin ? 'admin' : 'customer'
       };
       await setDoc(userDocRef, defaultProfile, { merge: true });
-      localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(defaultProfile));
+      safeStorage.setItem(LS_PROFILE_KEY, JSON.stringify(defaultProfile));
       return defaultProfile;
     }
   } catch (err) {
@@ -251,7 +329,7 @@ export function subscribeToCustomerProfile(
       (docSnap) => {
         if (docSnap.exists()) {
           const profileData = docSnap.data() as CustomerProfile;
-          localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(profileData));
+          safeStorage.setItem(LS_PROFILE_KEY, JSON.stringify(profileData));
           onProfileChange(profileData);
         } else {
           onProfileChange(null);
@@ -262,7 +340,7 @@ export function subscribeToCustomerProfile(
           handleFirestoreError(error, OperationType.GET, `users/${uid}`);
         }
         console.warn('Customer profile listener error:', error);
-        const cached = localStorage.getItem(LS_PROFILE_KEY);
+        const cached = safeStorage.getItem(LS_PROFILE_KEY);
         if (cached) {
           try {
             onProfileChange(JSON.parse(cached));
@@ -294,11 +372,11 @@ export async function updateCustomerProfileInDb(
 
   // Update local cache
   try {
-    const cached = localStorage.getItem(LS_PROFILE_KEY);
+    const cached = safeStorage.getItem(LS_PROFILE_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
       const updated = { ...parsed, ...data };
-      localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(updated));
+      safeStorage.setItem(LS_PROFILE_KEY, JSON.stringify(updated));
     }
   } catch {
     // ignore
@@ -348,11 +426,11 @@ export async function saveCustomerAddressInDb(
 
   // Update local cache
   try {
-    const cached = localStorage.getItem(LS_PROFILE_KEY);
+    const cached = safeStorage.getItem(LS_PROFILE_KEY);
     if (cached) {
       const parsed = JSON.parse(cached);
       parsed.addresses = updatedList;
-      localStorage.setItem(LS_PROFILE_KEY, JSON.stringify(parsed));
+      safeStorage.setItem(LS_PROFILE_KEY, JSON.stringify(parsed));
     }
   } catch {
     // ignore
@@ -389,14 +467,14 @@ export async function seedInitialProductsIfNeeded(): Promise<Product[]> {
   try {
     const productsCol = collection(db, 'products');
     const snapshot = await getDocs(productsCol);
-    const hasBeenInitialized = localStorage.getItem('hh_catalog_initialized_v1') === 'true';
+    const hasBeenInitialized = safeStorage.getItem('hh_catalog_initialized_v1') === 'true';
 
     if (snapshot.empty && !hasBeenInitialized && INITIAL_PRODUCTS.length > 0) {
       for (const prod of INITIAL_PRODUCTS) {
         const clean = sanitizeForFirestore(prod);
         await setDoc(doc(db, 'products', prod.id), clean, { merge: true });
       }
-      localStorage.setItem('hh_catalog_initialized_v1', 'true');
+      safeStorage.setItem('hh_catalog_initialized_v1', 'true');
       return INITIAL_PRODUCTS;
     } else {
       const prods: Product[] = [];
@@ -409,7 +487,7 @@ export async function seedInitialProductsIfNeeded(): Promise<Product[]> {
     }
   } catch (err) {
     console.warn('Firestore seeding check notice, using local cache fallback:', err);
-    const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+    const cached = safeStorage.getItem(LS_PRODUCTS_KEY);
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
@@ -429,66 +507,70 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
     const unsubscribe = onSnapshot(
       productsCol,
       async snapshot => {
-        if (snapshot.empty) {
-          const initStatus = localStorage.getItem('hh_catalog_initialized_v1');
-          if (initStatus) {
-            // Store has already been initialized in the past; empty means products were deleted
-            localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify([]));
-            onProductsChange([]);
+        try {
+          if (snapshot.empty) {
+            const initStatus = safeStorage.getItem('hh_catalog_initialized_v1');
+            if (initStatus) {
+              // Store has already been initialized in the past; empty means products were deleted
+              safeStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify([]));
+              onProductsChange([]);
+              return;
+            }
+
+            // First-time setup on a fresh instance only:
+            try {
+              for (const prod of INITIAL_PRODUCTS) {
+                const clean = sanitizeForFirestore(prod);
+                await setDoc(doc(db, 'products', prod.id), clean, { merge: true });
+              }
+              safeStorage.setItem('hh_catalog_initialized_v1', 'true');
+            } catch (seedErr) {
+              console.warn('Firestore auto seeding notice:', seedErr);
+            }
+
+            // Check if we have valid cached products
+            const cached = safeStorage.getItem(LS_PRODUCTS_KEY);
+            if (cached) {
+              try {
+                const parsed = JSON.parse(cached);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  onProductsChange(parsed);
+                  return;
+                }
+              } catch {
+                // ignore
+              }
+            }
+
+            safeStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(INITIAL_PRODUCTS));
+            onProductsChange(INITIAL_PRODUCTS);
             return;
           }
 
-          // First-time setup on a fresh instance only:
-          try {
-            for (const prod of INITIAL_PRODUCTS) {
-              const clean = sanitizeForFirestore(prod);
-              await setDoc(doc(db, 'products', prod.id), clean, { merge: true });
+          const prods: Product[] = [];
+          snapshot.forEach(docSnap => {
+            const item = docSnap.data() as Product;
+            if (item && item.id) {
+              prods.push(item);
             }
-            localStorage.setItem('hh_catalog_initialized_v1', 'true');
-          } catch (seedErr) {
-            console.warn('Firestore auto seeding notice:', seedErr);
-          }
+          });
 
-          // Check if we have valid cached products
-          const cached = localStorage.getItem(LS_PRODUCTS_KEY);
-          if (cached) {
-            try {
-              const parsed = JSON.parse(cached);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                onProductsChange(parsed);
-                return;
-              }
-            } catch {
-              // ignore
-            }
-          }
+          // Sort by price ascending
+          prods.sort((a, b) => (a.price || 0) - (b.price || 0));
 
-          localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(INITIAL_PRODUCTS));
-          onProductsChange(INITIAL_PRODUCTS);
-          return;
+          safeStorage.setItem('hh_catalog_initialized_v1', 'true');
+          safeStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(prods));
+          onProductsChange(prods);
+        } catch (err) {
+          console.warn('Error inside products snapshot callback:', err);
         }
-
-        const prods: Product[] = [];
-        snapshot.forEach(docSnap => {
-          const item = docSnap.data() as Product;
-          if (item && item.id) {
-            prods.push(item);
-          }
-        });
-
-        // Sort by price ascending
-        prods.sort((a, b) => (a.price || 0) - (b.price || 0));
-
-        localStorage.setItem('hh_catalog_initialized_v1', 'true');
-        localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(prods));
-        onProductsChange(prods);
       },
       error => {
         if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
           handleFirestoreError(error, OperationType.GET, 'products');
         }
         console.warn('Firestore products listener fallback to local storage:', error);
-        const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+        const cached = safeStorage.getItem(LS_PRODUCTS_KEY);
         if (cached) {
           try {
             const parsed = JSON.parse(cached);
@@ -506,7 +588,7 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
     return unsubscribe;
   } catch (e) {
     console.warn('Error setting up product subscription:', e);
-    const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+    const cached = safeStorage.getItem(LS_PRODUCTS_KEY);
     try {
       const parsed = cached ? JSON.parse(cached) : null;
       onProductsChange(Array.isArray(parsed) ? parsed : INITIAL_PRODUCTS);
@@ -533,7 +615,7 @@ export async function saveProductToDb(
   // Check previous product version to record audit diff
   let existingProduct: Product | undefined;
   try {
-    const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+    const cached = safeStorage.getItem(LS_PRODUCTS_KEY);
     if (cached) {
       const list: Product[] = JSON.parse(cached);
       existingProduct = list.find(p => p.id === product.id);
@@ -553,7 +635,7 @@ export async function saveProductToDb(
 
   // Always update local cache first for instant feedback
   try {
-    const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+    const cached = safeStorage.getItem(LS_PRODUCTS_KEY);
     let list: Product[] = cached ? JSON.parse(cached) : [...INITIAL_PRODUCTS];
     const idx = list.findIndex(p => p.id === enrichedProduct.id);
     if (idx >= 0) {
@@ -561,7 +643,7 @@ export async function saveProductToDb(
     } else {
       list.push(enrichedProduct);
     }
-    localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(list));
+    safeStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(list));
   } catch {
     // ignore
   }
@@ -569,19 +651,19 @@ export async function saveProductToDb(
   // Update Firestore with clean sanitized payload
   try {
     const docRef = doc(db, 'products', enrichedProduct.id);
-    let cleanDoc = sanitizeForFirestore(enrichedProduct);
+    let cleanDoc: any = sanitizeForFirestore(enrichedProduct);
 
     // Safeguard Firestore 1 MiB (1,048,576 bytes) hard document limit
     // Downscale or sanitize oversized base64 data URLs if present
     if (cleanDoc.videoUrl && typeof cleanDoc.videoUrl === 'string' && cleanDoc.videoUrl.startsWith('data:') && cleanDoc.videoUrl.length > 250000) {
       console.warn(`[FIRESTORE GUARD] Product ${cleanDoc.id} video data URL exceeds 250KB. Omitted from Firestore document to stay within 1MB limit.`);
-      cleanDoc.videoUrl = undefined;
+      delete cleanDoc.videoUrl;
     }
 
-    if (cleanDoc.image && typeof cleanDoc.image === 'string' && cleanDoc.image.startsWith('data:') && cleanDoc.image.length > 400000) {
-      console.warn(`[FIRESTORE GUARD] Product ${cleanDoc.id} image data URL exceeds 400KB. Falling back to official HD image.`);
+    if (cleanDoc.image && typeof cleanDoc.image === 'string' && cleanDoc.image.startsWith('data:') && cleanDoc.image.length > 800000) {
+      console.warn(`[FIRESTORE GUARD] Product ${cleanDoc.id} image data URL exceeds 800KB. Falling back to official HD image.`);
       const defaultProd = INITIAL_PRODUCTS.find(p => p.id === cleanDoc.id);
-      cleanDoc.image = defaultProd?.image || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80';
+      cleanDoc.image = defaultProd?.image || DEFAULT_BOTTLE_IMAGE;
     }
 
     // Measure total byte size
@@ -590,11 +672,12 @@ export async function saveProductToDb(
       console.warn(`[FIRESTORE GUARD] Product ${cleanDoc.id} payload size is ${payloadBytes} bytes. Sanitizing heavy fields.`);
       if (cleanDoc.image && cleanDoc.image.startsWith('data:')) {
         const defaultProd = INITIAL_PRODUCTS.find(p => p.id === cleanDoc.id);
-        cleanDoc.image = defaultProd?.image || 'https://images.unsplash.com/photo-1548839140-29a749e1bc4e?auto=format&fit=crop&w=800&q=80';
+        cleanDoc.image = defaultProd?.image || DEFAULT_BOTTLE_IMAGE;
       }
-      cleanDoc.videoUrl = undefined;
+      delete cleanDoc.videoUrl;
     }
 
+    cleanDoc = sanitizeForFirestore(cleanDoc);
     await setDoc(docRef, cleanDoc, { merge: true });
     console.log(`[FIRESTORE SUCCESS] Product ${enrichedProduct.name} (${enrichedProduct.size}) synced with ID: ${enrichedProduct.id}`);
   } catch (err) {
@@ -631,13 +714,24 @@ export async function saveProductToDb(
       const oldVal = existingProduct[field];
       const newVal = enrichedProduct[field];
       if (oldVal !== newVal && (oldVal !== undefined || newVal !== undefined)) {
+        let oldStr = oldVal !== undefined ? (typeof oldVal === 'object' ? JSON.stringify(oldVal) : String(oldVal)) : 'None';
+        let newStr = newVal !== undefined ? (typeof newVal === 'object' ? JSON.stringify(newVal) : String(newVal)) : 'None';
+
+        // Protect audit logs from giant base64 payloads which blow localStorage quota
+        if (oldStr.startsWith('data:') || oldStr.length > 120) {
+          oldStr = oldStr.startsWith('data:') ? '[Base64 Image Data]' : (oldStr.substring(0, 110) + '... (truncated)');
+        }
+        if (newStr.startsWith('data:') || newStr.length > 120) {
+          newStr = newStr.startsWith('data:') ? '[Base64 Image Data]' : (newStr.substring(0, 110) + '... (truncated)');
+        }
+
         const auditItem: ProductAuditLog = {
           id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
           productId: enrichedProduct.id,
           productName: enrichedProduct.name,
           changedField: String(field),
-          oldValue: oldVal !== undefined ? (typeof oldVal === 'object' ? JSON.stringify(oldVal) : String(oldVal)) : 'None',
-          newValue: newVal !== undefined ? (typeof newVal === 'object' ? JSON.stringify(newVal) : String(newVal)) : 'None',
+          oldValue: oldStr,
+          newValue: newStr,
           adminEmail,
           adminName,
           timestamp: now,
@@ -671,13 +765,12 @@ export async function saveProductToDb(
 
 // Record Product Audit Log in Firestore and local storage
 export async function recordProductAuditLogInDb(log: ProductAuditLog): Promise<void> {
-  // Update local cache
+  // Update local cache safely with max 30 items
   try {
-    const cached = localStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
+    const cached = safeStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
     const logs: ProductAuditLog[] = cached ? JSON.parse(cached) : [];
     logs.unshift(log);
-    // Keep last 200 logs locally
-    localStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify(logs.slice(0, 200)));
+    safeStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify(logs.slice(0, 30)));
   } catch {
     // ignore
   }
@@ -702,24 +795,39 @@ export function subscribeToProductAuditLogs(onLogsChange: (logs: ProductAuditLog
     const unsubscribe = onSnapshot(
       logsCol,
       snapshot => {
-        const logs: ProductAuditLog[] = [];
-        snapshot.forEach(docSnap => {
-          const item = docSnap.data() as ProductAuditLog;
-          if (item && item.id) {
-            logs.push(item);
-          }
-        });
-        // Sort newest first
-        logs.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
-        localStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify(logs));
-        onLogsChange(logs);
+        try {
+          const logs: ProductAuditLog[] = [];
+          snapshot.forEach(docSnap => {
+            const item = docSnap.data() as ProductAuditLog;
+            if (item && item.id) {
+              const cleanOld = typeof item.oldValue === 'string' && (item.oldValue.startsWith('data:') || item.oldValue.length > 150)
+                ? (item.oldValue.startsWith('data:') ? '[Base64 Image Data]' : item.oldValue.substring(0, 140) + '...')
+                : (item.oldValue || 'None');
+              const cleanNew = typeof item.newValue === 'string' && (item.newValue.startsWith('data:') || item.newValue.length > 150)
+                ? (item.newValue.startsWith('data:') ? '[Base64 Image Data]' : item.newValue.substring(0, 140) + '...')
+                : (item.newValue || 'None');
+              logs.push({
+                ...item,
+                oldValue: cleanOld,
+                newValue: cleanNew,
+              });
+            }
+          });
+          // Sort newest first
+          logs.sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+          // Save max 30 items locally via safeStorage to guarantee quota limits are respected
+          safeStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify(logs.slice(0, 30)));
+          onLogsChange(logs);
+        } catch (err) {
+          console.warn('Error processing audit logs snapshot:', err);
+        }
       },
       error => {
         if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
           handleFirestoreError(error, OperationType.GET, 'product_audit_logs');
         }
         console.warn('Firestore audit logs listener notice, using local cache fallback:', error);
-        const cached = localStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
+        const cached = safeStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
         if (cached) {
           try {
             const parsed = JSON.parse(cached);
@@ -735,7 +843,7 @@ export function subscribeToProductAuditLogs(onLogsChange: (logs: ProductAuditLog
     return unsubscribe;
   } catch (e) {
     console.warn('Error setting up product audit logs subscription:', e);
-    const cached = localStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
+    const cached = safeStorage.getItem(LS_PRODUCT_AUDIT_LOGS_KEY);
     try {
       const parsed = cached ? JSON.parse(cached) : null;
       onLogsChange(Array.isArray(parsed) ? parsed : []);
@@ -754,11 +862,14 @@ export async function deleteProductFromDb(
 ): Promise<void> {
   // Update local cache
   try {
-    const cached = localStorage.getItem(LS_PRODUCTS_KEY);
+    const cached = safeStorage.getItem(LS_PRODUCTS_KEY);
     if (cached) {
       const list: Product[] = JSON.parse(cached);
       const filtered = list.filter(p => p.id !== productId);
-      localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(filtered));
+      safeStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify(filtered));
+      if (filtered.length === 0) {
+        safeStorage.setItem('hh_catalog_initialized_v1', 'cleared');
+      }
     }
   } catch {
     // ignore
@@ -778,7 +889,7 @@ export async function deleteProductFromDb(
   // Log product deletion
   const now = new Date().toISOString();
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'Server';
-  const deviceInfo = /Mobile|Android|iPhone/i.test(userAgent) ? 'Mobile Device' : 'Desktop Browser';
+  const deviceInfo = /Mobile|Android|iPhone/i.test(userAgent) ? 'Mobile Device' : /Tablet|iPad/i.test(userAgent) ? 'Tablet' : 'Desktop Browser';
   const auditItem: ProductAuditLog = {
     id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     productId,
@@ -809,8 +920,8 @@ export async function deleteAllProductsFromDb(adminEmail: string = 'mdhussain170
   }
 
   try {
-    localStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify([]));
-    localStorage.setItem('hh_catalog_initialized_v1', 'true');
+    safeStorage.setItem(LS_PRODUCTS_KEY, JSON.stringify([]));
+    safeStorage.setItem('hh_catalog_initialized_v1', 'cleared');
   } catch {
     // ignore
   }
@@ -846,7 +957,7 @@ export async function clearProductAuditLogsInDb(): Promise<void> {
   }
 
   try {
-    localStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify([]));
+    safeStorage.setItem(LS_PRODUCT_AUDIT_LOGS_KEY, JSON.stringify([]));
   } catch {
     // ignore
   }
@@ -859,20 +970,24 @@ export function subscribeToOrders(onOrdersChange: (orders: Order[]) => void): ()
     const unsubscribe = onSnapshot(
       ordersCol,
       snapshot => {
-        const orders: Order[] = [];
-        snapshot.forEach(docSnap => {
-          orders.push(docSnap.data() as Order);
-        });
-        orders.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-        localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(orders));
-        onOrdersChange(orders);
+        try {
+          const orders: Order[] = [];
+          snapshot.forEach(docSnap => {
+            orders.push(docSnap.data() as Order);
+          });
+          orders.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+          safeStorage.setItem(LS_ORDERS_KEY, JSON.stringify(orders.slice(0, 100)));
+          onOrdersChange(orders);
+        } catch (err) {
+          console.warn('Error processing orders snapshot:', err);
+        }
       },
       error => {
         if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
           handleFirestoreError(error, OperationType.GET, 'orders');
         }
         console.warn('Firestore orders listener fallback to local storage:', error);
-        const cached = localStorage.getItem(LS_ORDERS_KEY);
+        const cached = safeStorage.getItem(LS_ORDERS_KEY);
         if (cached) {
           try {
             onOrdersChange(JSON.parse(cached));
@@ -887,7 +1002,7 @@ export function subscribeToOrders(onOrdersChange: (orders: Order[]) => void): ()
     return unsubscribe;
   } catch (e) {
     console.warn('Error setting up orders subscription:', e);
-    const cached = localStorage.getItem(LS_ORDERS_KEY);
+    const cached = safeStorage.getItem(LS_ORDERS_KEY);
     onOrdersChange(cached ? JSON.parse(cached) : []);
     return () => {};
   }
@@ -897,19 +1012,19 @@ export function subscribeToOrders(onOrdersChange: (orders: Order[]) => void): ()
 export async function saveNewOrderToDb(order: Order): Promise<void> {
   // Update local storage
   try {
-    const cached = localStorage.getItem(LS_ORDERS_KEY);
+    const cached = safeStorage.getItem(LS_ORDERS_KEY);
     const list: Order[] = cached ? JSON.parse(cached) : [];
     list.unshift(order);
-    localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
+    safeStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list.slice(0, 100)));
   } catch (e) {
     console.warn('Local storage error saving order:', e);
   }
 
-  // Update Firestore
+  // Update Firestore with safeguarded payload
   try {
     const orderDoc = doc(db, 'orders', order.id);
-    const cleanDoc = sanitizeForFirestore(order);
-    await setDoc(orderDoc, cleanDoc);
+    const cleanDoc = sanitizeOrderForFirestore(order);
+    await setDoc(orderDoc, cleanDoc, { merge: true });
   } catch (err) {
     if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
       handleFirestoreError(err, OperationType.CREATE, `orders/${order.id}`);
@@ -935,7 +1050,7 @@ export async function updateOrderStatusInDb(
 
   // Update Local Storage
   try {
-    const cached = localStorage.getItem(LS_ORDERS_KEY);
+    const cached = safeStorage.getItem(LS_ORDERS_KEY);
     if (cached) {
       const list: Order[] = JSON.parse(cached);
       const idx = list.findIndex(o => o.id === orderId);
@@ -943,7 +1058,7 @@ export async function updateOrderStatusInDb(
         list[idx].status = newStatus;
         if (!list[idx].statusHistory) list[idx].statusHistory = [];
         list[idx].statusHistory.push(historyItem);
-        localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
+        safeStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
       }
     }
   } catch (e) {
@@ -953,10 +1068,10 @@ export async function updateOrderStatusInDb(
   // Update Firestore
   try {
     const orderDoc = doc(db, 'orders', orderId);
-    await updateDoc(orderDoc, {
+    await setDoc(orderDoc, {
       status: newStatus,
       statusHistory: arrayUnion(historyItem)
-    });
+    }, { merge: true });
   } catch (err) {
     if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
       handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`);
@@ -969,11 +1084,11 @@ export async function updateOrderStatusInDb(
 export async function deleteOrderFromDb(orderId: string): Promise<void> {
   // Update Local Storage
   try {
-    const cached = localStorage.getItem(LS_ORDERS_KEY);
+    const cached = safeStorage.getItem(LS_ORDERS_KEY);
     if (cached) {
       const list: Order[] = JSON.parse(cached);
       const filtered = list.filter(o => o.id !== orderId);
-      localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(filtered));
+      safeStorage.setItem(LS_ORDERS_KEY, JSON.stringify(filtered));
     }
   } catch (e) {
     console.warn('Local storage error on order deletion:', e);
@@ -995,23 +1110,23 @@ export async function deleteOrderFromDb(orderId: string): Promise<void> {
 export async function updateFullOrderInDb(order: Order): Promise<void> {
   // Update Local Storage
   try {
-    const cached = localStorage.getItem(LS_ORDERS_KEY);
+    const cached = safeStorage.getItem(LS_ORDERS_KEY);
     if (cached) {
       const list: Order[] = JSON.parse(cached);
       const idx = list.findIndex(o => o.id === order.id);
       if (idx >= 0) {
         list[idx] = order;
-        localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
+        safeStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
       }
     }
   } catch (e) {
     console.warn('Local storage update full order error:', e);
   }
 
-  // Update Firestore
+  // Update Firestore with safeguarded payload
   try {
     const orderDoc = doc(db, 'orders', order.id);
-    const cleanDoc = sanitizeForFirestore(order);
+    const cleanDoc = sanitizeOrderForFirestore(order);
     await setDoc(orderDoc, cleanDoc, { merge: true });
   } catch (err) {
     if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
@@ -1031,7 +1146,7 @@ export async function updateOrderWhatsAppStatusInDb(
 
   // Local storage
   try {
-    const cached = localStorage.getItem(LS_ORDERS_KEY);
+    const cached = safeStorage.getItem(LS_ORDERS_KEY);
     if (cached) {
       const list: Order[] = JSON.parse(cached);
       const idx = list.findIndex(o => o.id === orderId);
@@ -1049,7 +1164,7 @@ export async function updateOrderWhatsAppStatusInDb(
           list[idx].whatsAppNotification.lastAttempt = now;
           list[idx].whatsAppNotification.retryCount += retryCountIncrement;
         }
-        localStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
+        safeStorage.setItem(LS_ORDERS_KEY, JSON.stringify(list));
       }
     }
   } catch {
@@ -1077,20 +1192,69 @@ export async function updateOrderWhatsAppStatusInDb(
 
 // Store Settings
 export async function getAdminSettings(): Promise<AdminSettings> {
+  // 1. First check local cache for instant zero-latency load
+  let cachedSettings: AdminSettings | null = null;
   try {
-    const cached = localStorage.getItem(LS_SETTINGS_KEY);
-    if (cached) return JSON.parse(cached);
+    const cached = safeStorage.getItem(LS_SETTINGS_KEY);
+    if (cached) {
+      cachedSettings = JSON.parse(cached);
+    }
   } catch {
     // ignore
   }
-  return DEFAULT_ADMIN_SETTINGS;
+
+  // 2. Fetch fresh document from Firestore if online
+  try {
+    const settingsDoc = doc(db, 'settings', 'general');
+    const docSnap = await getDoc(settingsDoc);
+    if (docSnap.exists()) {
+      const data = docSnap.data() as AdminSettings;
+      if (data && typeof data === 'object') {
+        const merged = { ...(cachedSettings || DEFAULT_ADMIN_SETTINGS), ...data };
+        safeStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(merged));
+        return merged;
+      }
+    }
+  } catch (err) {
+    console.warn('Firestore getAdminSettings notice:', err);
+  }
+
+  return cachedSettings || DEFAULT_ADMIN_SETTINGS;
 }
 
 export function saveAdminSettings(settings: AdminSettings) {
   try {
-    localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
+    safeStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings));
     const settingsDoc = doc(db, 'settings', 'general');
-    setDoc(settingsDoc, settings, { merge: true }).catch(err => {
+
+    // Create a safe copy for Firestore so we don't break Firestore's 1MB hard limit
+    const cleanSettings: Record<string, any> = { ...settings };
+    if (
+      typeof cleanSettings.heroBannerImage === 'string' &&
+      cleanSettings.heroBannerImage.startsWith('data:') &&
+      cleanSettings.heroBannerImage.length > 750000
+    ) {
+      console.warn('[Firestore] Omitting heavy base64 hero image from Firestore document to prevent 1MB limit error.');
+      cleanSettings.heroBannerImage = DEFAULT_ADMIN_SETTINGS.heroBannerImage;
+    }
+    if (
+      typeof cleanSettings.heroBannerVideo === 'string' &&
+      cleanSettings.heroBannerVideo.startsWith('data:') &&
+      cleanSettings.heroBannerVideo.length > 250000
+    ) {
+      console.warn('[Firestore] Omitting heavy base64 hero video from Firestore document to prevent 1MB limit error.');
+      cleanSettings.heroBannerVideo = ''; // The full video is safely saved in PostgreSQL via /api/settings
+    }
+    if (
+      typeof cleanSettings.brandLogoImage === 'string' &&
+      cleanSettings.brandLogoImage.startsWith('data:') &&
+      cleanSettings.brandLogoImage.length > 200000
+    ) {
+      cleanSettings.brandLogoImage = '';
+    }
+
+    const payload = sanitizeForFirestore(cleanSettings);
+    setDoc(settingsDoc, payload, { merge: true }).catch(err => {
       if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
         handleFirestoreError(err, OperationType.WRITE, 'settings/general');
       }
@@ -1098,6 +1262,31 @@ export function saveAdminSettings(settings: AdminSettings) {
     });
   } catch (e) {
     console.warn('Save settings error:', e);
+  }
+}
+
+// Real-time Firestore subscriber for store settings
+export function subscribeToAdminSettings(onSettingsChange: (settings: AdminSettings) => void): () => void {
+  try {
+    const settingsDoc = doc(db, 'settings', 'general');
+    const unsub = onSnapshot(
+      settingsDoc,
+      docSnap => {
+        if (docSnap.exists()) {
+          const data = docSnap.data() as AdminSettings;
+          if (data && typeof data === 'object') {
+            onSettingsChange(data);
+          }
+        }
+      },
+      err => {
+        console.warn('Firestore settings subscription notice:', err);
+      }
+    );
+    return unsub;
+  } catch (err) {
+    console.warn('Firestore settings listener error:', err);
+    return () => {};
   }
 }
 
@@ -1110,15 +1299,28 @@ export function getInvoiceDocId(id: string): string {
 export async function saveInvoiceToDb(invoice: Invoice): Promise<void> {
   // Update local cache
   try {
-    const cached = localStorage.getItem('hh_mineral_invoices_v1');
+    const cached = safeStorage.getItem('hh_mineral_invoices_v1');
     const list: Invoice[] = cached ? JSON.parse(cached) : [];
-    const idx = list.findIndex(inv => inv.id === invoice.id || inv.invoiceNumber === invoice.invoiceNumber);
+    const idx = list.findIndex(inv => 
+      inv.id === invoice.id || 
+      inv.invoiceNumber === invoice.invoiceNumber ||
+      (Boolean(invoice.orderId) && inv.orderId === invoice.orderId)
+    );
     if (idx >= 0) {
       list[idx] = invoice;
     } else {
       list.unshift(invoice);
     }
-    localStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(list));
+    // Deduplicate by orderId
+    const seenOrders = new Set<string>();
+    const deduplicated = list.filter(inv => {
+      const key = inv.orderId || inv.id || inv.invoiceNumber;
+      if (!key) return true;
+      if (seenOrders.has(key)) return false;
+      seenOrders.add(key);
+      return true;
+    });
+    safeStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(deduplicated.slice(0, 50)));
   } catch (e) {
     console.warn('Local storage error saving invoice:', e);
   }
@@ -1127,7 +1329,7 @@ export async function saveInvoiceToDb(invoice: Invoice): Promise<void> {
   try {
     const docId = getInvoiceDocId(invoice.id || invoice.invoiceNumber);
     const invoiceDoc = doc(db, 'invoices', docId);
-    const cleanDoc = sanitizeForFirestore(invoice);
+    const cleanDoc = sanitizeInvoiceForFirestore(invoice);
     await setDoc(invoiceDoc, cleanDoc, { merge: true });
   } catch (err) {
     const docId = getInvoiceDocId(invoice.id || invoice.invoiceNumber);
@@ -1144,20 +1346,48 @@ export function subscribeToInvoices(onInvoicesChange: (invoices: Invoice[]) => v
     const unsubscribe = onSnapshot(
       invoicesCol,
       snapshot => {
-        const invoicesList: Invoice[] = [];
-        snapshot.forEach(docSnap => {
-          invoicesList.push(docSnap.data() as Invoice);
-        });
-        invoicesList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-        localStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(invoicesList));
-        onInvoicesChange(invoicesList);
+        try {
+          const rawInvoicesList: Invoice[] = [];
+          snapshot.forEach(docSnap => {
+            rawInvoicesList.push(docSnap.data() as Invoice);
+          });
+          rawInvoicesList.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+          // Deduplicate by orderId: 1 Order = Exactly 1 Invoice
+          const seenOrders = new Set<string>();
+          const invoicesList: Invoice[] = [];
+          const duplicatesToDelete: { id: string; invoiceNumber?: string }[] = [];
+
+          for (const inv of rawInvoicesList) {
+            const orderKey = inv.orderId;
+            if (orderKey && seenOrders.has(orderKey)) {
+              // Found duplicate invoice document in Firestore for the same order
+              duplicatesToDelete.push({ id: inv.id, invoiceNumber: inv.invoiceNumber });
+            } else {
+              if (orderKey) seenOrders.add(orderKey);
+              invoicesList.push(inv);
+            }
+          }
+
+          // Asynchronously clean up any orphaned duplicates found in Firestore
+          if (duplicatesToDelete.length > 0) {
+            duplicatesToDelete.forEach(dup => {
+              deleteInvoiceFromDb(dup.id, dup.invoiceNumber).catch(() => {});
+            });
+          }
+
+          safeStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(invoicesList.slice(0, 50)));
+          onInvoicesChange(invoicesList);
+        } catch (err) {
+          console.warn('Error processing invoices snapshot:', err);
+        }
       },
       error => {
         if (error instanceof Error && (error.message.includes('permission') || error.message.includes('insufficient'))) {
           handleFirestoreError(error, OperationType.GET, 'invoices');
         }
         console.warn('Firestore invoices listener fallback to local cache:', error);
-        const cached = localStorage.getItem('hh_mineral_invoices_v1');
+        const cached = safeStorage.getItem('hh_mineral_invoices_v1');
         if (cached) {
           try {
             onInvoicesChange(JSON.parse(cached));
@@ -1172,7 +1402,7 @@ export function subscribeToInvoices(onInvoicesChange: (invoices: Invoice[]) => v
     return unsubscribe;
   } catch (e) {
     console.warn('Error setting up invoices subscription:', e);
-    const cached = localStorage.getItem('hh_mineral_invoices_v1');
+    const cached = safeStorage.getItem('hh_mineral_invoices_v1');
     onInvoicesChange(cached ? JSON.parse(cached) : []);
     return () => {};
   }
@@ -1182,7 +1412,7 @@ export function subscribeToInvoices(onInvoicesChange: (invoices: Invoice[]) => v
 export async function deleteInvoiceFromDb(invoiceId: string, invoiceNumber?: string): Promise<void> {
   // Update Local Storage
   try {
-    const cached = localStorage.getItem('hh_mineral_invoices_v1');
+    const cached = safeStorage.getItem('hh_mineral_invoices_v1');
     if (cached) {
       const list = JSON.parse(cached);
       const filtered = list.filter((inv: any) => 
@@ -1191,7 +1421,7 @@ export async function deleteInvoiceFromDb(invoiceId: string, invoiceNumber?: str
         inv.orderId !== invoiceId &&
         (!invoiceNumber || inv.invoiceNumber !== invoiceNumber)
       );
-      localStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(filtered));
+      safeStorage.setItem('hh_mineral_invoices_v1', JSON.stringify(filtered));
     }
   } catch (e) {
     console.warn('Local storage error on invoice deletion:', e);
@@ -1222,7 +1452,7 @@ export async function deleteAllInvoicesFromDb(): Promise<void> {
   }
 
   try {
-    localStorage.removeItem('hh_mineral_invoices_v1');
+    safeStorage.removeItem('hh_mineral_invoices_v1');
   } catch (e) {
     console.warn('Local storage clear invoices error:', e);
   }
