@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Order, AdminSettings } from '../../types';
 import { DEFAULT_ADMIN_SETTINGS } from '../../data/initialProducts';
-import { Printer, CheckCircle2, Package, Truck, Phone, MapPin, Building2, ExternalLink } from 'lucide-react';
+import { Printer, CheckCircle2, Package, Truck, Phone, MapPin, Building2, ExternalLink, QrCode } from 'lucide-react';
 import { openDeliveryChallanPrintTab } from '../../lib/invoicePrintHelper';
+import { generateOrderQrDataUrl, getOrderDispatchCode } from '../../lib/dispatchQr';
 
 interface DeliveryChallanModalProps {
   order: Order;
@@ -18,6 +19,20 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
   onClose
 }) => {
   const currentSettings = propAdminSettings || settings || DEFAULT_ADMIN_SETTINGS || ({} as Partial<AdminSettings>);
+  const [challanQrUrl, setChallanQrUrl] = useState<string>('');
+  const dispatchCode = getOrderDispatchCode(order);
+
+  useEffect(() => {
+    let active = true;
+    generateOrderQrDataUrl(order, { width: 160, overrideCode: dispatchCode })
+      .then(url => {
+        if (active) setChallanQrUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [order.id, dispatchCode]);
 
   const safeItems: any[] = Array.isArray(order.items)
     ? order.items
@@ -73,14 +88,38 @@ export const DeliveryChallanModal: React.FC<DeliveryChallanModalProps> = ({
 
         {/* Challan Body */}
         <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200 space-y-4 text-xs text-slate-800 font-sans">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+          <div className="flex items-center justify-between gap-4 pb-3 border-b border-slate-200">
             <div>
               <span className="text-[10px] font-bold text-slate-400 block uppercase">DISPATCH CHALLAN #</span>
               <strong className="text-sm font-mono text-slate-900">{displayChallanNo}</strong>
+              <div className="mt-1 flex items-center gap-1.5">
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-900 text-[#DFC283]">
+                  {dispatchCode}
+                </span>
+                {order.dispatchVerifiedAt && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                    QR Verified
+                  </span>
+                )}
+              </div>
             </div>
-            <div className="text-right">
-              <span className="text-[10px] font-bold text-slate-400 block uppercase">DISPATCH DATE</span>
-              <strong className="font-mono">{new Date().toLocaleDateString('en-IN')}</strong>
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">DISPATCH DATE</span>
+                <strong className="font-mono">{new Date().toLocaleDateString('en-IN')}</strong>
+                <span className="text-[10px] text-slate-500 block font-mono">{order.id}</span>
+              </div>
+              {challanQrUrl ? (
+                <img
+                  src={challanQrUrl}
+                  alt={`QR ${order.id}`}
+                  className="w-16 h-16 rounded-lg border border-slate-300 bg-white p-0.5 shrink-0"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-lg border border-slate-300 bg-white flex items-center justify-center text-slate-400 shrink-0">
+                  <QrCode className="w-6 h-6" />
+                </div>
+              )}
             </div>
           </div>
 

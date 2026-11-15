@@ -19,6 +19,28 @@ export function getFinancialYear(dateInput?: Date | string): string {
   }
 }
 
+const INDIAN_GST_STATE_CODES: Record<string, string> = {
+  'jammu and kashmir': '01', 'himachal pradesh': '02', 'punjab': '03', 'chandigarh': '04',
+  'uttarakhand': '05', 'haryana': '06', 'delhi': '07', 'rajasthan': '08', 'uttar pradesh': '09',
+  'bihar': '10', 'sikkim': '11', 'arunachal pradesh': '12', 'nagaland': '13', 'manipur': '14',
+  'mizoram': '15', 'tripura': '16', 'meghalaya': '17', 'assam': '18', 'west bengal': '19',
+  'jharkhand': '20', 'odisha': '21', 'orissa': '21', 'chhattisgarh': '22', 'madhya pradesh': '23',
+  'gujarat': '24', 'dadra and nagar haveli and daman and diu': '26', 'maharashtra': '27',
+  'andhra pradesh': '37', 'karnataka': '29', 'goa': '30', 'lakshadweep': '31', 'kerala': '32',
+  'tamil nadu': '33', 'puducherry': '34', 'andaman and nicobar islands': '35', 'telangana': '36',
+  'ladakh': '38'
+};
+
+function resolveGstStateCode(stateName?: string, explicitCode?: string, gstin?: string, fallbackCode = '19'): string {
+  if (explicitCode && /^\d{2}$/.test(explicitCode.trim())) return explicitCode.trim();
+  if (gstin && /^\d{2}/.test(gstin.trim())) return gstin.trim().slice(0, 2);
+  if (stateName) {
+    const normalized = stateName.trim().toLowerCase();
+    if (INDIAN_GST_STATE_CODES[normalized]) return INDIAN_GST_STATE_CODES[normalized];
+  }
+  return fallbackCode;
+}
+
 /**
  * Deterministically generates an official GST Tax Invoice from an Order and AdminSettings.
  */
@@ -56,7 +78,8 @@ export function generateGstInvoice(
   // Determine Customer State and whether transaction is Intra-State or Inter-State
   const custAny = (safeOrder.customer || (safeOrder as any).customerDetails || {}) as any;
   const customerState = custAny.state || companyState;
-  const customerStateCode = custAny.stateCode || (customerState === companyState ? companyStateCode : '19');
+  const customerGstin = custAny.gstin || (safeOrder as any).gstin;
+  const customerStateCode = resolveGstStateCode(customerState, custAny.stateCode, customerGstin, companyStateCode);
 
   // Intra-state (CGST + SGST) if customer is in same state, otherwise Inter-state (IGST)
   const isIntraState = customerStateCode === companyStateCode;
@@ -156,7 +179,14 @@ export function generateGstInvoice(
   });
 
   const deliveryCharge = Number(safeOrder.deliveryCharge) || 0;
-  const grandTotal = Math.round(Number(safeOrder.totalAmount) || (totalGrossItems + deliveryCharge));
+  const discountAmount = Number(safeOrder.discount) || 0;
+  const rawOrderTotal = safeOrder.totalAmount !== undefined && safeOrder.totalAmount !== null
+    ? Number(safeOrder.totalAmount)
+    : NaN;
+  const grandTotal = Math.max(
+    0,
+    Math.round(Number.isFinite(rawOrderTotal) ? rawOrderTotal : (totalGrossItems + deliveryCharge - discountAmount))
+  );
   const totalGstAmount = Math.round((totalCgst + totalSgst + totalIgst) * 100) / 100;
   const taxableRounded = Math.round(totalTaxableAmount * 100) / 100;
 
@@ -170,7 +200,7 @@ export function generateGstInvoice(
     invoiceDate,
     financialYear: finYear,
     supplyDate: invoiceDate,
-    placeOfSupply: `${companyState} (${companyStateCode})`,
+    placeOfSupply: `${customerState} (${customerStateCode})`,
     reverseCharge: 'No',
     companyDetails: {
       legalBusinessName: safeSettings.legalBusinessName || 'HH MINERAL WATER BOTTLING & PACKAGING',

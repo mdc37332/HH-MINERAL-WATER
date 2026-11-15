@@ -43,7 +43,7 @@ export const ContactSection: React.FC = () => {
       `Hello HH MINERAL WATER! My name is ${name}. I am inquiring about "${inquiryType}". Note: ${message}`
     );
     try {
-      window.open(`https://wa.me/91${OWNER_WHATSAPP_NUMBER}?text=${waText}`, '_blank');
+      window.open(`https://wa.me/91${OWNER_WHATSAPP_NUMBER}?text=${waText}`, '_blank', 'noopener,noreferrer');
     } catch (e) {
       console.warn('Could not open WhatsApp tab automatically:', e);
     }

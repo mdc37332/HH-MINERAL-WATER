@@ -32,9 +32,9 @@ import {
 } from '../data/bottlePresets';
 
 export const HeroSection: React.FC = () => {
-  const { setCurrentSection, adminSettings, isAdminUnlocked } = useStore();
+  const { setCurrentSection, adminSettings, isAdminUnlocked, isFactoryStaffUnlocked } = useStore();
 
-  const isAdmin = Boolean(isAdminUnlocked);
+  const isAdmin = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
 
   const fallbackHeroImage = DEFAULT_HERO_IMAGE;
   const [heroImgFailed, setHeroImgFailed] = useState(false);

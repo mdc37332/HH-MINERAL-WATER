@@ -10,9 +10,11 @@ import {
   ExternalLink,
   ShieldCheck,
   Download,
-  Share2,
   MessageCircle,
-  Sparkles
+  Sparkles,
+  QrCode,
+  CheckCircle2,
+  RotateCcw
 } from 'lucide-react';
 import {
   printInvoiceDocument,
@@ -21,6 +23,7 @@ import {
   ensureSanitizedInvoice,
   downloadInvoicePdf
 } from '../lib/invoicePrintHelper';
+import { buildQrSvgSync, getInvoiceDispatchQrInfo } from '../lib/dispatchQr';
 import { getFinancialYear } from '../lib/invoiceGenerator';
 
 interface GstInvoiceModalProps {
@@ -40,11 +43,24 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
   onClose,
   initialAutoPrint = false
 }) => {
-  const { showToast, isAdminUnlocked } = useStore();
+  const {
+    orders,
+    showToast,
+    isAdminUnlocked,
+    isFactoryStaffUnlocked,
+    verifyOrderAtDispatchCounter,
+    clearOrderDispatchVerification
+  } = useStore();
   const isAdmin = Boolean(isAdminUnlocked);
+  const canOperateCounter = Boolean(isAdminUnlocked || isFactoryStaffUnlocked);
   const [copyType, setCopyType] = useState<'Original for Recipient' | 'Duplicate for Transporter' | 'Triplicate for Supplier'>('Original for Recipient');
   const [printPhase, setPrintPhase] = useState<PrintPhase>('idle');
+  const [isVerifyingCounterQr, setIsVerifyingCounterQr] = useState(false);
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const hasAutoPrintedRef = useRef(false);
+
+  const safeInvoicePre = invoice ? ensureSanitizedInvoice(invoice) : null;
+  const linkedOrder = order || (safeInvoicePre ? orders.find(o => o.id === safeInvoicePre.orderId) : undefined);
 
   useEffect(() => {
     if (!isOpen) {
@@ -95,11 +111,11 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
       const isEmbedded = typeof window !== 'undefined' && window.self !== window.top;
       if (isEmbedded) {
         // Direct window.print() is blocked inside sandboxed iframe without throwing; open print tab
-        openInvoicePrintTab(invoice, copyType);
+        openInvoicePrintTab(invoice, copyType, linkedOrder);
         try { window.print(); } catch {}
         setTimeout(cleanUp, 600);
       } else {
-        const printed = await printInvoiceDocument(invoice, copyType);
+        const printed = await printInvoiceDocument(invoice, copyType, linkedOrder);
         if (!printed) {
           window.print();
         }
@@ -107,7 +123,7 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
       }
     } catch (err) {
       console.warn('Print helper error, opening fallback print tab:', err);
-      openInvoicePrintTab(invoice, copyType);
+      openInvoicePrintTab(invoice, copyType, linkedOrder);
       cleanUp();
     } finally {
       // Safety timer so styles and UI state aren't left stuck
@@ -166,14 +182,29 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
     : '12:00 PM';
 
   const financialYear = safeInvoice.financialYear || getFinancialYear(safeDate);
+  const dispatchQrInfo = getInvoiceDispatchQrInfo(safeInvoice, linkedOrder);
+  const dispatchQrSvg = buildQrSvgSync(dispatchQrInfo.payload, 74);
+  const isDispatchQrVerified = Boolean(dispatchQrInfo.verifiedAt);
 
-  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const handleToggleCounterQrVerify = async () => {
+    if (!linkedOrder || isVerifyingCounterQr) return;
+    setIsVerifyingCounterQr(true);
+    try {
+      if (isDispatchQrVerified) {
+        await clearOrderDispatchVerification(linkedOrder.id);
+      } else {
+        await verifyOrderAtDispatchCounter(linkedOrder.id, dispatchQrInfo.dispatchCode);
+      }
+    } finally {
+      setIsVerifyingCounterQr(false);
+    }
+  };
 
   const handleDownloadPdf = async () => {
     if (isDownloadingPdf) return;
     setIsDownloadingPdf(true);
     try {
-      const success = await downloadInvoicePdf(safeInvoice, copyType);
+      const success = await downloadInvoicePdf(safeInvoice, copyType, undefined, linkedOrder);
       if (success) {
         showToast?.('PDF Saved', `Downloaded official A4 PDF for ${safeInvoice.invoiceNumber}.`, 'success');
       } else {
@@ -197,6 +228,7 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
       `📅 *Date:* ${formattedDate}`,
       `👤 *Customer:* ${safeInvoice.customerDetails?.name || 'Valued Customer'}`,
       `🏷️ *Order ID:* ${safeInvoice.orderId}`,
+      `📱 *Dispatch QR Token:* ${dispatchQrInfo.dispatchCode}`,
       ``,
       `*Items Purchased:*`,
       ...safeInvoice.items.map((it, i) => `${i + 1}. ${it.productName} — ${it.quantity} pcs @ ₹${it.unitPrice.toFixed(2)} = ₹${it.totalAmount.toFixed(2)}`),
@@ -213,7 +245,7 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
 
     const phoneParam = cleanCustomerNumber ? `phone=${cleanCustomerNumber}&` : '';
     const whatsappUrl = `https://api.whatsapp.com/send?${phoneParam}text=${encodeURIComponent(lines)}`;
-    window.open(whatsappUrl, '_blank');
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
     showToast?.('Opening WhatsApp', 'Sharing official tax invoice summary on WhatsApp.', 'info');
   };
 
@@ -252,6 +284,34 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {canOperateCounter && linkedOrder && (
+              <button
+                type="button"
+                id="btn-header-verify-counter-qr"
+                onClick={handleToggleCounterQrVerify}
+                disabled={isVerifyingCounterQr}
+                className={`hidden sm:flex items-center gap-1.5 text-xs font-bold px-3 py-2 rounded-xl transition-all cursor-pointer disabled:opacity-60 ${
+                  isDispatchQrVerified
+                    ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-900'
+                    : 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-xs'
+                }`}
+                title={
+                  isDispatchQrVerified
+                    ? 'Verified at Dispatch Counter (Click to reset verification)'
+                    : 'Mark this invoice verified at the Factory Dispatch Counter'
+                }
+              >
+                {isVerifyingCounterQr ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : isDispatchQrVerified ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                ) : (
+                  <QrCode className="w-3.5 h-3.5" />
+                )}
+                <span>{isDispatchQrVerified ? 'Counter Verified ✓' : 'Verify Counter QR'}</span>
+              </button>
+            )}
+
             <button
               type="button"
               id="btn-header-pdf-invoice"
@@ -299,7 +359,7 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
               type="button"
               id="btn-header-open-tab"
               onClick={() => {
-                openInvoicePrintTab(safeInvoice, copyType);
+                openInvoicePrintTab(safeInvoice, copyType, linkedOrder);
                 showToast?.('Invoice Tab Opened', 'Official GST invoice opened in a separate printable tab.', 'success');
               }}
               className="hidden md:flex items-center gap-1.5 bg-[#1c1c1c] hover:bg-[#252525] text-neutral-300 text-xs font-medium px-2.5 py-2 rounded-xl transition-colors cursor-pointer border border-[#333333]"
@@ -835,18 +895,54 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
             </div>
           </div>
 
-          {/* Terms & Conditions and Signature Area */}
-          <div className="border-t border-slate-300 pt-4 grid grid-cols-1 md:grid-cols-2 print:grid-cols-2 gap-6 text-[10px] avoid-break print-avoid-break">
+          {/* Terms & Conditions, Dispatch QR Counter & Signature Area */}
+          <div className="border-t border-slate-300 pt-4 grid grid-cols-1 md:grid-cols-12 print:grid-cols-12 gap-4 text-[10px] avoid-break print-avoid-break">
             {/* Terms */}
-            <div className="space-y-1">
+            <div className="md:col-span-4 print:col-span-4 space-y-1">
               <span className="font-bold text-slate-800 uppercase tracking-wider block">Terms & Conditions</span>
               <p className="text-slate-600 whitespace-pre-line leading-relaxed">
                 {company.invoiceTerms || '1. Goods once sold will not be taken back or exchanged.\n2. Invoices are subject to local jurisdiction.\n3. Storage: Keep in a dry place away from direct sunlight.'}
               </p>
             </div>
 
+            {/* Dispatch QR Counter Card */}
+            <div className="md:col-span-4 print:col-span-4 border border-slate-300 rounded-xl p-2.5 bg-slate-50/80 flex items-center gap-3">
+              <div
+                className="w-[78px] h-[78px] bg-white border border-slate-300 rounded-lg p-1 flex items-center justify-center shrink-0"
+                dangerouslySetInnerHTML={{ __html: dispatchQrSvg }}
+              />
+              <div className="min-w-0 flex-1 space-y-1">
+                <div className="flex items-center gap-1 text-[9.5px] font-black uppercase tracking-wider text-slate-800">
+                  <QrCode className="w-3 h-3 text-cyan-700 shrink-0" />
+                  <span className="truncate">Dispatch QR Counter</span>
+                </div>
+                <div className="inline-block max-w-full truncate font-mono font-black text-[10px] px-2 py-0.5 rounded bg-slate-900 text-[#DFC283]">
+                  {dispatchQrInfo.dispatchCode}
+                </div>
+                <div
+                  className={`text-[9.5px] font-bold flex items-center gap-1 ${
+                    isDispatchQrVerified ? 'text-emerald-700' : 'text-cyan-800'
+                  }`}
+                >
+                  {isDispatchQrVerified ? (
+                    <>
+                      <CheckCircle2 className="w-3 h-3 shrink-0" />
+                      <span className="truncate">
+                        Verified at Counter{dispatchQrInfo.verifiedBy ? ` (${dispatchQrInfo.verifiedBy})` : ''}
+                      </span>
+                    </>
+                  ) : (
+                    <span>Ready for Counter Scan</span>
+                  )}
+                </div>
+                <p className="text-[9px] text-slate-500 font-mono truncate">
+                  Ref: {dispatchQrInfo.orderId}
+                </p>
+              </div>
+            </div>
+
             {/* Signature Stamp Box */}
-            <div className="border border-slate-300 rounded-xl p-3.5 flex flex-col justify-between text-right bg-slate-50/50 min-h-[100px]">
+            <div className="md:col-span-4 print:col-span-4 border border-slate-300 rounded-xl p-3.5 flex flex-col justify-between text-right bg-slate-50/50 min-h-[100px]">
               <div>
                 <span className="font-bold text-slate-900 text-xs">For {company.legalBusinessName || 'HH MINERAL WATER BOTTLING & PACKAGING'}</span>
                 <p className="text-slate-500 text-[10px]">Authorized Signatory / Bottling Division</p>
@@ -880,6 +976,34 @@ export const GstInvoiceModal: React.FC<GstInvoiceModalProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-end">
+            {canOperateCounter && linkedOrder && (
+              <button
+                type="button"
+                id="btn-bottom-verify-counter-qr"
+                onClick={handleToggleCounterQrVerify}
+                disabled={isVerifyingCounterQr}
+                className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 font-bold text-xs px-3.5 py-2 rounded-xl shadow-xs transition-all cursor-pointer disabled:opacity-60 ${
+                  isDispatchQrVerified
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-cyan-600 hover:bg-cyan-700 text-white'
+                }`}
+                title={
+                  isDispatchQrVerified
+                    ? 'Click to reset counter scan verification'
+                    : 'Verify at Factory Dispatch Counter'
+                }
+              >
+                {isVerifyingCounterQr ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : isDispatchQrVerified ? (
+                  <RotateCcw className="w-3.5 h-3.5 text-emerald-700" />
+                ) : (
+                  <QrCode className="w-3.5 h-3.5" />
+                )}
+                <span>{isDispatchQrVerified ? 'Reset Counter Scan' : 'Verify Counter QR'}</span>
+              </button>
+            )}
+
             <button
               type="button"
               id="btn-bottom-pdf-invoice"

@@ -67,6 +67,7 @@ export interface Product {
   lowStockThreshold?: number; // Numerical critical alert threshold (defaults to 50)
   reorderLevel?: number; // Numerical warning reorder level (defaults to 100)
   showSellingPrice?: boolean; // Admin toggle: when true (default), discounted selling price is active; when false, sells at standard MRP
+  isVisible?: boolean; // Selective Admin visibility toggle: true = SHOW (visible in catalog), false = NOT SHOW (hidden from customers & staff)
   tags?: string[]; // e.g. ["Packaged Water", "Natural Minerals", "Party Favourite"]
   version?: number; // Server-side concurrency & version tracker
   updatedAt?: string; // ISO timestamp of last update
@@ -251,7 +252,7 @@ export interface Order {
   discount: number;
   totalAmount: number;
   paymentMethod: 'Cash on Delivery (COD)' | 'UPI / QR Code' | 'Online NetBanking / Card';
-  paymentStatus: 'Pending' | 'Paid' | 'Cash Due on Delivery';
+  paymentStatus: 'Pending' | 'Paid' | 'Cash Due on Delivery' | 'Refunded';
   orderNotes?: string;
   isCustomOrder: boolean;
   hasOriginalImage: boolean;
@@ -272,6 +273,11 @@ export interface Order {
   deliveryCoordinates?: DeliveryCoordinates;
   isOfflineSale?: boolean;
   orderSource?: 'online' | 'offline_counter' | 'direct_sales';
+  // Factory Dispatch Counter QR Code & Verification
+  dispatchQrCode?: string;
+  dispatchQrGeneratedAt?: string;
+  dispatchVerifiedAt?: string;
+  dispatchVerifiedBy?: string;
 }
 
 export interface CustomLabelDetails {
@@ -351,8 +357,9 @@ export interface AdminSettings {
   upiId?: string;
   invoiceTerms?: string;
 
-  // Pricing & Selling Price Controls (Admin-Only)
-  showAllProducts?: boolean; // Admin-only master switch: when true (default), all products are shown on storefront; when false, products are hidden from customers/staff
+  // Pricing & Storefront Visibility Controls (Admin-Only)
+  showAllProducts?: boolean; // Legacy master flag (kept optional for compatibility; selective per-product visibility supersedes)
+  hiddenProductIds?: string[]; // List of specific product IDs set to NOT SHOW (hidden from customers & staff)
   showSellingPrice?: boolean; // Global master switch: when true (default), discounted selling prices are enabled store-wide; when false, all products sell at MRP
   showDiscountPercentage?: boolean; // Global switch: show/hide discount percentage badge (e.g. 40% OFF) across products
   disabledSellingPriceProductIds?: string[]; // List of specific product IDs where selling price is turned OFF

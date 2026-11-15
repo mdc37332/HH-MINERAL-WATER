@@ -502,7 +502,24 @@ export async function handleAdminVerifyOtp(req: Request, res: Response) {
   });
 }
 
-// Session Validation (Robust against server restarts & cross-device sessions)
+const revokedTokens = new Set<string>();
+let lastLogoutAllAt = 0;
+
+function isTokenRevoked(token: string): boolean {
+  if (!token) return true;
+  if (revokedTokens.has(token)) return true;
+  // Check timestamp-embedded master session tokens: hh_adm_<pin>_<ts>_master_session
+  const match = token.match(/^hh_adm_[^_]+_(\d+)_master_session$/);
+  if (match && lastLogoutAllAt > 0) {
+    const issuedAt = parseInt(match[1], 10);
+    if (!isNaN(issuedAt) && issuedAt <= lastLogoutAllAt) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Session Validation (Robust against server restarts & honors explicit revocations)
 export async function handleAdminVerifySession(req: Request, res: Response) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -510,8 +527,11 @@ export async function handleAdminVerifySession(req: Request, res: Response) {
   }
 
   const token = authHeader.split('Bearer ')[1].trim();
+  if (isTokenRevoked(token)) {
+    return res.status(401).json({ valid: false, error: 'Session revoked or logged out' });
+  }
 
-  // Master tokens or standard session prefixes are recognized even across server restarts
+  // Master tokens or standard session prefixes are recognized even across server restarts (unless revoked)
   if (token === '170707' || token.startsWith('hh_adm_')) {
     let session = activeSessions.get(token);
     if (!session) {
@@ -557,6 +577,13 @@ export async function handleAdminLogout(req: Request, res: Response) {
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split('Bearer ')[1].trim();
     activeSessions.delete(token);
+    if (token !== '170707') {
+      revokedTokens.add(token);
+      if (revokedTokens.size > 1000) {
+        const oldest = revokedTokens.values().next().value;
+        if (oldest) revokedTokens.delete(oldest);
+      }
+    }
   }
   logAuditEvent('ADMIN_LOGOUT', `Administrator logged out from current session.`, ip, 'SUCCESS');
   return res.json({ success: true, message: 'Logged out successfully.' });
@@ -566,6 +593,19 @@ export async function handleAdminLogout(req: Request, res: Response) {
 export async function handleAdminLogoutAll(req: Request, res: Response) {
   const ip = getClientIp(req);
   const count = activeSessions.size;
+  lastLogoutAllAt = Date.now();
+  for (const token of activeSessions.keys()) {
+    if (token !== '170707') {
+      revokedTokens.add(token);
+    }
+  }
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const callerToken = authHeader.split('Bearer ')[1].trim();
+    if (callerToken && callerToken !== '170707') {
+      revokedTokens.add(callerToken);
+    }
+  }
   activeSessions.clear();
   logAuditEvent('ADMIN_LOGOUT_ALL', `All active administrator sessions (${count}) were terminated.`, ip, 'WARNING');
   return res.json({ success: true, message: `Terminated ${count} active administrator session(s).` });
@@ -579,6 +619,9 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
   }
 
   const token = authHeader.split('Bearer ')[1].trim();
+  if (isTokenRevoked(token)) {
+    return res.status(403).json({ error: 'Forbidden: Admin session has been logged out or revoked.' });
+  }
 
   // Accept master credentials or valid session tokens
   if (token === '170707' || token.startsWith('hh_adm_')) {

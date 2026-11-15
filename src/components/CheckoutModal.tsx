@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useStore } from '../context/StoreContext';
+import { useStore, isProductVisibleInStore } from '../context/StoreContext';
 import { CustomerInfo, CustomerAddress, DeliveryCoordinates } from '../types';
 import { normalizePhoneNumber } from '../lib/whatsapp';
 import { LocationPickerMap } from './LocationPickerMap';
@@ -47,6 +47,7 @@ interface Props {
 
 export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
   const {
+    products,
     cart,
     cartSubtotal,
     deliveryFee,
@@ -56,6 +57,8 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
     currentUser,
     customerProfile,
     adminSettings,
+    isAdminUnlocked,
+    isFactoryStaffUnlocked,
     openAuthModal,
     showToast
   } = useStore();
@@ -311,6 +314,22 @@ export const CheckoutModal: React.FC<Props> = ({ onClose, onSuccess }) => {
     if (!currentUser) {
       openAuthModal('login', 'Please sign in or create an account to proceed with checkout.');
       return;
+    }
+
+    const isOwnerAdminOnly = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
+    if (!isOwnerAdminOnly) {
+      const blockedItem = cart.find(item => {
+        const liveProd = products.find(p => p.id === item.productId);
+        return !liveProd || !isProductVisibleInStore(liveProd, adminSettings) || liveProd.inStock === false || liveProd.stockStatus === 'Out of Stock';
+      });
+      if (blockedItem) {
+        showToast(
+          'Product Unavailable',
+          `"${blockedItem.product.name}" is currently hidden or out of stock. Please remove it from your bag first.`,
+          'warning'
+        );
+        return;
+      }
     }
 
     // Check custom design minimum quantity constraint

@@ -58,6 +58,7 @@ export async function getAllProducts(): Promise<Product[]> {
       discountPercent: p.discountPercent || (p.mrp > p.price ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0),
       stockCount: p.stockCount ?? 500,
       stockStatus: (p.stockStatus as any) || (p.inStock ? 'In Stock' : 'Out of Stock'),
+      isVisible: p.isVisible !== false && !((p.tags as string[]) || []).includes('hidden_not_show'),
       showSellingPrice: !((p.tags as string[]) || []).includes('selling_price_off'),
       tags: (p.tags as string[]) || [],
       version: p.version || 1,
@@ -101,6 +102,7 @@ export async function getProductById(productId: string): Promise<Product | null>
       discountPercent: p.discountPercent || (p.mrp > p.price ? Math.round(((p.mrp - p.price) / p.mrp) * 100) : 0),
       stockCount: p.stockCount ?? 500,
       stockStatus: (p.stockStatus as any) || (p.inStock ? 'In Stock' : 'Out of Stock'),
+      isVisible: p.isVisible !== false && !((p.tags as string[]) || []).includes('hidden_not_show'),
       showSellingPrice: !((p.tags as string[]) || []).includes('selling_price_off'),
       tags: (p.tags as string[]) || [],
       version: p.version || 1,
@@ -129,6 +131,15 @@ export async function upsertProduct(product: Product, adminEmail: string = 'mdhu
       updatedTags = updatedTags.filter(t => t !== 'selling_price_off');
     }
 
+    const isVisible = product.isVisible !== false && !updatedTags.includes('hidden_not_show');
+    if (product.isVisible === false) {
+      if (!updatedTags.includes('hidden_not_show')) {
+        updatedTags.push('hidden_not_show');
+      }
+    } else if (product.isVisible === true) {
+      updatedTags = updatedTags.filter(t => t !== 'hidden_not_show');
+    }
+
     const payload = {
       id: product.id,
       name: product.name || 'HH Mineral Water',
@@ -141,6 +152,7 @@ export async function upsertProduct(product: Product, adminEmail: string = 'mdhu
       description: product.description || 'Pure 7-stage filtration mineral water enriched with natural minerals.',
       shortDesc: product.shortDesc || `${product.size || 'Bottle'} Pure Mineral Water`,
       inStock: product.inStock !== false,
+      isVisible: product.isVisible === false ? false : isVisible,
       minOrderQty: Math.max(1, Number(product.minOrderQty) || 1),
       category: product.category || 'Standard',
       badge: product.badge || null,
@@ -399,10 +411,23 @@ export async function updateOrderStatusInDb(
   statusHistory: Order['statusHistory']
 ) {
   try {
+    const existing = await getOrderById(orderId);
+    const existingHistory = Array.isArray(existing?.statusHistory) ? existing.statusHistory : [];
+    const incomingHistory = Array.isArray(statusHistory) ? statusHistory : [];
+
+    let mergedHistory = existingHistory;
+    if (incomingHistory.length > 0) {
+      const seen = new Set(existingHistory.map(h => `${h?.timestamp || ''}|${h?.status || ''}`));
+      const toAppend = incomingHistory.filter(h => h && !seen.has(`${h.timestamp || ''}|${h.status || ''}`));
+      mergedHistory = incomingHistory.length >= existingHistory.length && existingHistory.length === 0
+        ? incomingHistory
+        : [...existingHistory, ...toAppend];
+    }
+
     const result = await db.update(orders)
       .set({
         status,
-        statusHistory,
+        statusHistory: mergedHistory,
       })
       .where(eq(orders.id, orderId))
       .returning();

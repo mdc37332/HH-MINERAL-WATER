@@ -1,16 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
     // --- Global Helper Functions ---
     function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128;
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
-    
+
     function incoming() {
       return request.resource.data;
     }
-    
+
     function existing() {
       return resource.data;
     }
@@ -25,12 +25,12 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        ('email' in request.auth.token && (
+        ('email' in request.auth.token &&
+         request.auth.token.email_verified == true && (
           request.auth.token.email.lower() == 'mdhussain170707@gmail.com' ||
           request.auth.token.email.lower() == 'mdc37332@gmail.com'
         )) ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
@@ -39,6 +39,7 @@ service cloud.firestore {
       return (!('id' in data) || (data.id is string && isValidId(data.id))) &&
              (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() <= 200)) &&
              (!('size' in data) || (data.size is string && data.size.size() <= 50)) &&
+             (!('isVisible' in data) || data.isVisible is bool) &&
              (!('price' in data) || (data.price is number && data.price >= 0));
     }
 
@@ -62,7 +63,51 @@ service cloud.firestore {
 
     function isValidStoreSettings(data) {
       return (!('ownerWhatsApp' in data) || (data.ownerWhatsApp is string && data.ownerWhatsApp.size() <= 50)) &&
+             (!('hiddenProductIds' in data) || (data.hiddenProductIds is list && data.hiddenProductIds.size() <= 200)) &&
              (!('freeDeliveryMinAmount' in data) || data.freeDeliveryMinAmount is number);
+    }
+
+    function isValidAiTask(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.agentId is string && data.agentId.size() > 0 && data.agentId.size() <= 64 &&
+             data.agentName is string && data.agentName.size() > 0 && data.agentName.size() <= 120 &&
+             data.status is string && data.status.size() > 0 && data.status.size() <= 40 &&
+             data.createdAt is string && data.createdAt.size() <= 100 &&
+             (!('eventSource' in data) || (data.eventSource is string && data.eventSource.size() <= 240)) &&
+             (!('taskDescription' in data) || (data.taskDescription is string && data.taskDescription.size() <= 600)) &&
+             (!('authorizationLevel' in data) || (data.authorizationLevel is string && data.authorizationLevel.size() <= 64)) &&
+             (!('verificationStatus' in data) || (data.verificationStatus is string && data.verificationStatus.size() <= 40)) &&
+             (!('tokensUsed' in data) || (data.tokensUsed is number && data.tokensUsed >= 0));
+    }
+
+    function isValidAiAgentMessage(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.correlationId is string && data.correlationId.size() > 0 && data.correlationId.size() <= 128 &&
+             data.fromAgentId is string && data.fromAgentId.size() > 0 && data.fromAgentId.size() <= 64 &&
+             data.toAgentId is string && data.toAgentId.size() > 0 && data.toAgentId.size() <= 64 &&
+             data.intent is string && data.intent.size() > 0 && data.intent.size() <= 40 &&
+             data.subject is string && data.subject.size() > 0 && data.subject.size() <= 300 &&
+             data.createdAt is string && data.createdAt.size() <= 100 &&
+             (!('fromAgentName' in data) || (data.fromAgentName is string && data.fromAgentName.size() <= 120)) &&
+             (!('toAgentName' in data) || (data.toAgentName is string && data.toAgentName.size() <= 120)) &&
+             (!('status' in data) || (data.status is string && data.status.size() <= 40)) &&
+             (!('priority' in data) || (data.priority is string && data.priority.size() <= 20));
+    }
+
+    function isValidAiApproval(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.agentId is string && data.agentId.size() > 0 && data.agentId.size() <= 64 &&
+             data.actionType is string && data.actionType.size() > 0 && data.actionType.size() <= 64 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.status is string && data.status.size() > 0 && data.status.size() <= 40 &&
+             data.createdAt is string && data.createdAt.size() <= 100 &&
+             (!('reason' in data) || (data.reason is string && data.reason.size() <= 1000)) &&
+             (!('expectedImpact' in data) || (data.expectedImpact is string && data.expectedImpact.size() <= 1000));
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
     }
 
     // Products collection: Publicly readable; strictly validated write
@@ -102,9 +147,18 @@ service cloud.firestore {
       allow write: if isValidId(settingId) && isValidStoreSettings(incoming());
     }
 
-    // User profiles & addresses: Strictly secured to authenticated owner or admin
+    // User profiles & addresses: Strictly secured to authenticated owner or admin without self-privilege escalation
     match /users/{userId} {
-      allow read, write: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow read: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow create: if isValidId(userId) && (
+        (isOwner(userId) && (!('role' in incoming()) || incoming().role == 'customer')) ||
+        isAdmin()
+      );
+      allow update: if isValidId(userId) && (
+        (isOwner(userId) && (!('role' in incoming()) || (('role' in existing()) && incoming().role == existing().role) || incoming().role == 'customer')) ||
+        isAdmin()
+      );
+      allow delete: if isValidId(userId) && isAdmin();
     }
 
     // Admins collection
@@ -113,14 +167,30 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Master AI Orchestrator Tasks (Admin Only)
+    match /ai_tasks/{taskId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(taskId) && isValidAiTask(incoming());
+      allow delete: if isAdmin() && isValidId(taskId);
+    }
+
+    // Cross-Agent Communication Bus (Admin Only)
+    match /ai_agent_messages/{messageId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(messageId) && isValidAiAgentMessage(incoming());
+      allow delete: if isAdmin() && isValidId(messageId);
+    }
+
+    // Owner Approval Requests Queue (Admin Only)
+    match /ai_approvals/{approvalId} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(approvalId) && isValidAiApproval(incoming());
+      allow delete: if isAdmin() && isValidId(approvalId);
+    }
+
     // Connection test document
     match /test/{docId} {
       allow read, write: if isValidId(docId);
-    }
-
-    // Default deny all undefined paths
-    match /{document=**} {
-      allow read, write: if false;
     }
   }
 }

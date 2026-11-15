@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useStore } from '../context/StoreContext';
+import React, { useState, useMemo } from 'react';
+import { useStore, isProductVisibleInStore } from '../context/StoreContext';
 import { DEFAULT_BOTTLE_IMAGE, STUDIO_BOTTLE_SVG_FALLBACK } from '../data/bottlePresets';
 import {
   X,
@@ -21,6 +21,7 @@ import { CheckoutModal } from './CheckoutModal';
 
 export const CartDrawer: React.FC = () => {
   const {
+    products,
     cart,
     isCartOpen,
     setIsCartOpen,
@@ -32,12 +33,29 @@ export const CartDrawer: React.FC = () => {
     deliveryFee,
     cartTotal,
     adminSettings,
+    isAdminUnlocked,
+    isFactoryStaffUnlocked,
     setCurrentSection
   } = useStore();
 
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const isOwnerAdminOnly = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
+  const hiddenProductIds = useMemo(() => {
+    const blocked = new Set<string>();
+    if (isOwnerAdminOnly) return blocked;
+    cart.forEach(item => {
+      const liveProd = products.find(p => p.id === item.productId);
+      if (!liveProd || !isProductVisibleInStore(liveProd, adminSettings) || liveProd.inStock === false || liveProd.stockStatus === 'Out of Stock') {
+        blocked.add(item.cartItemId);
+      }
+    });
+    return blocked;
+  }, [cart, products, adminSettings, isOwnerAdminOnly]);
+
   const invalidCustomItems = cart.filter(item => item.isCustomDesign && item.quantity < 600);
   const hasInvalidCustomItem = invalidCustomItems.length > 0;
+  const hasHiddenOrUnavailableItem = hiddenProductIds.size > 0;
+  const isCheckoutBlocked = hasInvalidCustomItem || hasHiddenOrUnavailableItem;
 
   if (!isCartOpen) return null;
 
@@ -209,6 +227,22 @@ export const CartDrawer: React.FC = () => {
 
                           {/* Price & Quantity Controls */}
                           <div className="mt-3 pt-2 border-t border-[#222222] space-y-2">
+                            {hiddenProductIds.has(item.cartItemId) && (
+                              <div className="p-2 bg-rose-950/50 border border-rose-700/70 rounded-lg flex items-center justify-between gap-2 text-[11px] text-rose-200 font-bold">
+                                <span className="flex items-center gap-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                                  <span>Currently hidden / unavailable in store.</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeFromCart(item.cartItemId)}
+                                  className="px-2 py-0.5 rounded bg-rose-800 hover:bg-rose-700 text-white text-[10px] font-black cursor-pointer shrink-0"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            )}
+
                             {isCustom && item.quantity < 600 && (
                               <div className="p-2 bg-rose-950/40 border border-rose-800/60 rounded-lg flex items-center gap-1.5 text-[11px] text-rose-300 font-bold">
                                 <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
@@ -363,6 +397,13 @@ export const CartDrawer: React.FC = () => {
                   </div>
                 )}
 
+                {hasHiddenOrUnavailableItem && (
+                  <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-xl flex items-center gap-2 text-rose-300 text-xs font-bold">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>One or more items in your bag are currently hidden or out of stock. Remove them to proceed.</span>
+                  </div>
+                )}
+
                 {hasInvalidCustomItem && (
                   <div className="p-3 bg-rose-950/40 border border-rose-800/60 rounded-xl flex items-center gap-2 text-rose-300 text-xs font-bold">
                     <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
@@ -390,15 +431,21 @@ export const CartDrawer: React.FC = () => {
 
                 {/* Checkout Trigger */}
                 <button
-                  disabled={hasInvalidCustomItem}
+                  disabled={isCheckoutBlocked}
                   onClick={() => setIsCheckoutOpen(true)}
                   className={`w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl font-black text-sm shadow-xl transition-all cursor-pointer ${
-                    hasInvalidCustomItem
+                    isCheckoutBlocked
                       ? 'bg-[#222222] text-neutral-500 cursor-not-allowed shadow-none'
                       : 'bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black shadow-[#C5A059]/20 active:scale-95'
                   }`}
                 >
-                  <span>{hasInvalidCustomItem ? 'Minimum 600 Pieces Required for Custom Design' : 'Proceed to Checkout'}</span>
+                  <span>
+                    {hasHiddenOrUnavailableItem
+                      ? 'Remove Unavailable Items to Checkout'
+                      : hasInvalidCustomItem
+                        ? 'Minimum 600 Pieces Required for Custom Design'
+                        : 'Proceed to Checkout'}
+                  </span>
                   <ArrowRight className="w-4 h-4 text-black" />
                 </button>
               </div>

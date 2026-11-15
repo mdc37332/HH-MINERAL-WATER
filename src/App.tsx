@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { Component } from 'react';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { Navbar } from './components/Navbar';
 import { HeroSection } from './components/HeroSection';
@@ -20,6 +20,7 @@ import { OrderSuccessModal } from './components/OrderSuccessModal';
 import { GstInvoiceModal } from './components/GstInvoiceModal';
 import { ToastContainer } from './components/ToastContainer';
 import { Footer } from './components/Footer';
+import { CustomerSupportAiModal } from './components/CustomerSupportAiModal';
 import {
   Sparkles,
   Droplets,
@@ -35,8 +36,75 @@ import {
 } from 'lucide-react';
 import { getCustomerSupportWhatsAppUrl, OWNER_WHATSAPP_NUMBER } from './lib/whatsapp';
 
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  message: string;
+}
+
+class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  declare props: Readonly<ErrorBoundaryProps>;
+  declare setState: (
+    state: ErrorBoundaryState | ((prev: ErrorBoundaryState) => ErrorBoundaryState)
+  ) => void;
+  state: ErrorBoundaryState = { hasError: false, message: '' };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return {
+      hasError: true,
+      message: error?.message || 'An unexpected display error occurred.'
+    };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('AppErrorBoundary caught error:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-[#000000] text-white flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-[#121212] border border-[#C5A059]/40 rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-2xl">
+            <div className="w-12 h-12 rounded-2xl bg-[#C5A059]/15 border border-[#C5A059]/40 flex items-center justify-center mx-auto text-[#DFC283]">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h2 className="font-heading text-xl font-black text-white">
+              Something Interrupted This View
+            </h2>
+            <p className="text-xs text-neutral-400 leading-relaxed">
+              {this.state.message}
+            </p>
+            <div className="flex items-center justify-center gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => this.setState({ hasError: false, message: '' })}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#C5A059] to-[#D4AF37] text-black font-black text-xs cursor-pointer hover:brightness-110 transition-all"
+              >
+                Try Again
+              </button>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="px-4 py-2.5 rounded-xl bg-[#1c1c1c] hover:bg-[#262626] text-neutral-200 border border-[#333333] font-bold text-xs cursor-pointer transition-colors"
+              >
+                Reload Page
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 const MainContent: React.FC = () => {
   const {
+    products,
     currentSection,
     setCurrentSection,
     selectedProductForDetail,
@@ -48,6 +116,11 @@ const MainContent: React.FC = () => {
     activeInvoiceAutoPrint,
     setActiveInvoiceAutoPrint
   } = useStore();
+
+  const liveSelectedProductForDetail = React.useMemo(() => {
+    if (!selectedProductForDetail) return null;
+    return products.find(p => p.id === selectedProductForDetail.id) || selectedProductForDetail;
+  }, [products, selectedProductForDetail]);
 
   const [hydrationAdvisorGoal, setHydrationAdvisorGoal] = React.useState<'events' | 'corporate' | 'household' | 'dining'>('events');
 
@@ -271,9 +344,9 @@ const MainContent: React.FC = () => {
       </main>
 
       {/* Product Detail Modal */}
-      {selectedProductForDetail && (
+      {liveSelectedProductForDetail && (
         <ProductDetailModal
-          product={selectedProductForDetail}
+          product={liveSelectedProductForDetail}
           onClose={() => setSelectedProductForDetail(null)}
         />
       )}
@@ -310,6 +383,9 @@ const MainContent: React.FC = () => {
       {/* Toast Notifications */}
       <ToastContainer />
 
+      {/* Customer-Isolated Support AI Assistant (AGENT_03_SUPPORT) */}
+      <CustomerSupportAiModal />
+
       {/* Footer */}
       <Footer />
     </div>
@@ -318,8 +394,10 @@ const MainContent: React.FC = () => {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <MainContent />
-    </StoreProvider>
+    <AppErrorBoundary>
+      <StoreProvider>
+        <MainContent />
+      </StoreProvider>
+    </AppErrorBoundary>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Product } from '../types';
-import { useStore, isProductSellingPriceActive } from '../context/StoreContext';
+import { useStore, isProductSellingPriceActive, isProductVisibleInStore } from '../context/StoreContext';
 import {
   X,
   ShieldCheck,
@@ -22,7 +22,10 @@ import {
   ChevronDown,
   Package,
   Edit3,
-  Percent
+  Percent,
+  Eye,
+  EyeOff,
+  AlertCircle
 } from 'lucide-react';
 import { AdminBottleImageModal } from './admin/AdminBottleImageModal';
 import {
@@ -35,18 +38,28 @@ interface Props {
   onClose: () => void;
 }
 
-export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
+export const ProductDetailModal: React.FC<Props> = ({ product: propProduct, onClose }) => {
   const {
+    products,
     addToCart,
     setSelectedProductForCustom,
     setCurrentSection,
     setIsCartOpen,
     isAdminUnlocked,
+    isFactoryStaffUnlocked,
     adminSettings,
-    updateProduct
+    updateProduct,
+    toggleProductVisibility
   } = useStore();
 
-  const isAdmin = Boolean(isAdminUnlocked);
+  const product = React.useMemo(
+    () => products.find(p => p.id === propProduct.id) || propProduct,
+    [products, propProduct]
+  );
+
+  const isAdmin = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
+  const isProductShown = isProductVisibleInStore(product, adminSettings);
+  const isHiddenForViewer = !isAdmin && !isProductShown;
 
   const handleAdminToggleSellingPrice = async () => {
     if (!isAdmin) return;
@@ -89,6 +102,13 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
   const [spinSpeed, setSpinSpeed] = useState<'slow' | 'normal' | 'fast'>('normal');
   const activeImage = productImages[activeImgIndex] || productImages[0] || defaultPlaceholder;
 
+  // Clamp activeImgIndex when gallery length shrinks
+  React.useEffect(() => {
+    if (activeImgIndex >= productImages.length) {
+      setActiveImgIndex(0);
+    }
+  }, [activeImgIndex, productImages.length]);
+
   // Reset image error state when product or image changes
   React.useEffect(() => {
     setImageError(false);
@@ -105,6 +125,7 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
   }, [isAutoSpinning, spinSpeed, productImages.length]);
 
   const isOutOfStock = product.inStock === false || product.stockStatus === 'Out of Stock';
+  const isPurchaseDisabled = isOutOfStock || isHiddenForViewer;
 
   const isSellingPriceActive = isProductSellingPriceActive(product, adminSettings);
   const unitPrice = isSellingPriceActive ? (product.price || 0) : (product.mrp || product.price || 0);
@@ -119,19 +140,20 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
   const showDiscountBadge = (adminSettings?.showDiscountPercentage !== false) && isSellingPriceActive && discountPercent > 0;
 
   const handleAddToCart = () => {
-    if (isOutOfStock) return;
+    if (isPurchaseDisabled) return;
     addToCart(product, totalBottles);
     onClose();
   };
 
   const handleBuyNow = () => {
-    if (isOutOfStock) return;
+    if (isPurchaseDisabled) return;
     addToCart(product, totalBottles);
     onClose();
     setIsCartOpen(true);
   };
 
   const handleCustomDesign = () => {
+    if (isHiddenForViewer) return;
     setSelectedProductForCustom(product);
     onClose();
     setCurrentSection('custom-design');
@@ -416,23 +438,44 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
                     Save ₹{totalSavings} ({discountPercent}% Discount • Incl. GST)
                   </span>
                 )}
-                {Boolean(isAdminUnlocked) && (
-                  <button
-                    type="button"
-                    onClick={handleAdminToggleSellingPrice}
-                    className={`text-[10px] font-black px-2.5 py-1 rounded-full border cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 shadow-xs ${
-                      isSellingPriceActive
-                        ? 'bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border-cyan-700/70'
-                        : 'bg-amber-950/80 hover:bg-amber-900 text-amber-300 border-amber-700/70'
-                    }`}
-                    title="Click to toggle Selling Price ON/OFF for this product (Admin only)"
-                  >
-                    <span className={`w-1.5 h-1.5 rounded-full ${isSellingPriceActive ? 'bg-cyan-400 animate-pulse' : 'bg-amber-400'}`} />
-                    <span>Admin: Selling Price {isSellingPriceActive ? 'ON' : 'OFF (MRP)'}</span>
-                    <span className="text-[9px] underline opacity-80">Toggle</span>
-                  </button>
+                {isAdmin && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleAdminToggleSellingPrice}
+                      className={`text-[10px] font-black px-2.5 py-1 rounded-full border cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 shadow-xs ${
+                        isSellingPriceActive
+                          ? 'bg-cyan-950/80 hover:bg-cyan-900 text-cyan-300 border-cyan-700/70'
+                          : 'bg-amber-950/80 hover:bg-amber-900 text-amber-300 border-amber-700/70'
+                      }`}
+                      title="Click to toggle Selling Price ON/OFF for this product (Admin only)"
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${isSellingPriceActive ? 'bg-cyan-400 animate-pulse' : 'bg-amber-400'}`} />
+                      <span>Selling Price {isSellingPriceActive ? 'ON' : 'OFF (MRP)'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleProductVisibility(product.id)}
+                      className={`text-[10px] font-black px-2.5 py-1 rounded-full border cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 shadow-xs ${
+                        isProductShown
+                          ? 'bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 border-emerald-700/70'
+                          : 'bg-rose-950/80 hover:bg-rose-900 text-rose-300 border-rose-700/70'
+                      }`}
+                      title="Toggle public visibility (SHOW / NOT SHOW) for this product"
+                    >
+                      {isProductShown ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                      <span>{isProductShown ? 'SHOW' : 'NOT SHOW'}</span>
+                    </button>
+                  </>
                 )}
               </div>
+
+              {isHiddenForViewer && (
+                <div className="mt-3 p-2.5 rounded-xl bg-rose-950/40 border border-rose-700/60 flex items-center gap-2 text-xs text-rose-200 font-semibold">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>This bottle is currently hidden from the store catalog (NOT SHOW) and cannot be ordered.</span>
+                </div>
+              )}
 
               {/* Bottle Select Option: 12, 24, 36, 48 Pieces */}
               <div className="space-y-1.5 pt-2">
@@ -610,36 +653,41 @@ export const ProductDetailModal: React.FC<Props> = ({ product, onClose }) => {
               <div className="grid grid-cols-2 gap-2 sm:gap-3">
                 <button
                   onClick={handleAddToCart}
-                  disabled={isOutOfStock}
+                  disabled={isPurchaseDisabled}
                   className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 sm:py-3 px-3 sm:px-4 rounded-xl font-bold text-xs transition-all ${
-                    isOutOfStock
+                    isPurchaseDisabled
                       ? 'bg-[#181818] text-neutral-500 border border-[#282828] cursor-not-allowed'
                       : 'bg-[#1e1e1e] hover:bg-[#282828] text-white border border-[#333333] hover:border-[#C5A059]/60 cursor-pointer'
                   }`}
                 >
                   <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#C5A059]" />
-                  <span>{isOutOfStock ? 'Out of Stock' : 'Add to Bag'}</span>
+                  <span>{isHiddenForViewer ? 'Hidden' : isOutOfStock ? 'Out of Stock' : 'Add to Bag'}</span>
                 </button>
                 <button
                   onClick={handleBuyNow}
-                  disabled={isOutOfStock}
+                  disabled={isPurchaseDisabled}
                   className={`flex items-center justify-center gap-1.5 sm:gap-2 py-2.5 sm:py-3 px-3 sm:px-4 rounded-xl font-black text-xs shadow-lg transition-all ${
-                    isOutOfStock
+                    isPurchaseDisabled
                       ? 'bg-[#222222] text-neutral-500 shadow-none cursor-not-allowed'
                       : 'bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black shadow-[#C5A059]/20 cursor-pointer'
                   }`}
                 >
-                  <Zap className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isOutOfStock ? 'text-neutral-500' : 'text-black fill-black'}`} />
-                  <span>{isOutOfStock ? 'Unavailable' : 'Buy Now'}</span>
+                  <Zap className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${isPurchaseDisabled ? 'text-neutral-500' : 'text-black fill-black'}`} />
+                  <span>{isPurchaseDisabled ? 'Unavailable' : 'Buy Now'}</span>
                 </button>
               </div>
 
               <button
                 onClick={handleCustomDesign}
-                className="w-full flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-2.5 px-3 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs bg-[#181818] hover:bg-[#202020] text-[#DFC283] border border-[#C5A059]/40 hover:border-[#C5A059] transition-all cursor-pointer text-center"
+                disabled={isHiddenForViewer}
+                className={`w-full flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-2.5 px-3 sm:px-4 rounded-xl font-bold text-[10px] sm:text-xs transition-all text-center ${
+                  isHiddenForViewer
+                    ? 'bg-[#141414] text-neutral-500 border border-[#242424] cursor-not-allowed'
+                    : 'bg-[#181818] hover:bg-[#202020] text-[#DFC283] border border-[#C5A059]/40 hover:border-[#C5A059] cursor-pointer'
+                }`}
               >
                 <Sparkles className="w-3.5 h-3.5 text-[#C5A059] shrink-0" />
-                <span className="truncate">Create Custom Design Order (1 to Unlimited • 2× Price)</span>
+                <span className="truncate">Create Custom Design Order (Min 600 Pcs • 2× Price)</span>
               </button>
             </div>
           </div>

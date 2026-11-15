@@ -19,7 +19,7 @@ import {
   Eye,
   EyeOff
 } from 'lucide-react';
-import { isProductSellingPriceActive } from '../context/StoreContext';
+import { isProductSellingPriceActive, isProductVisibleInStore } from '../context/StoreContext';
 
 export const ProductCatalogSection: React.FC = () => {
   const {
@@ -28,19 +28,34 @@ export const ProductCatalogSection: React.FC = () => {
     setCurrentSection,
     resetProductsToDefault,
     isAdminUnlocked,
-    toggleAllProductsVisibility,
+    isFactoryStaffUnlocked,
+    setSelectedProductsVisibility,
     toggleAllProductsSellingPrice
   } = useStore();
-  const isAllProductsShown = adminSettings?.showAllProducts !== false;
+  const isOwnerAdminOnly = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedSizeFilter, setSelectedSizeFilter] = useState<string>('all');
+  const [adminVisibilityFilter, setAdminVisibilityFilter] = useState<'all' | 'shown' | 'hidden'>('all');
+  const [selectedCatalogIds, setSelectedCatalogIds] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<'price-asc' | 'price-desc' | 'name-asc' | 'popular'>('price-asc');
+
+  // Non-admins only see products where isVisible is true; Owner Admin sees all to manage SHOW / NOT SHOW
+  const visibleBaseProducts = useMemo(() => {
+    if (isOwnerAdminOnly) return products;
+    return products.filter(p => isProductVisibleInStore(p, adminSettings));
+  }, [products, adminSettings, isOwnerAdminOnly]);
+
+  const shownCount = useMemo(
+    () => products.filter(p => isProductVisibleInStore(p, adminSettings)).length,
+    [products, adminSettings]
+  );
+  const hiddenCount = products.length - shownCount;
 
   // Available Sizes with counts - ordered logically (250ml -> 500ml -> 1L -> 2L)
   const availableSizes = useMemo(() => {
     const sizeMap = new Map<string, number>();
-    products.forEach(p => {
+    visibleBaseProducts.forEach(p => {
       if (p.size) {
         const s = p.size.trim();
         sizeMap.set(s, (sizeMap.get(s) || 0) + 1);
@@ -58,24 +73,29 @@ export const ProductCatalogSection: React.FC = () => {
     });
 
     return [
-      { size: 'all', count: products.length },
+      { size: 'all', count: visibleBaseProducts.length },
       ...entries.map(([size, count]) => ({ size, count }))
     ];
-  }, [products]);
+  }, [visibleBaseProducts]);
 
   // Categories
   const categories = useMemo(() => {
     const catSet = new Set<string>();
-    products.forEach(p => {
+    visibleBaseProducts.forEach(p => {
       if (p.category && p.category.trim()) catSet.add(p.category.trim());
     });
     return ['all', ...Array.from(catSet)];
-  }, [products]);
+  }, [visibleBaseProducts]);
 
   // Filtered and Sorted products with safe null/undefined handling
   const filteredProducts = useMemo(() => {
-    return products
+    return visibleBaseProducts
       .filter(p => {
+        if (isOwnerAdminOnly && adminVisibilityFilter !== 'all') {
+          const isShown = isProductVisibleInStore(p, adminSettings);
+          if (adminVisibilityFilter === 'shown' && !isShown) return false;
+          if (adminVisibilityFilter === 'hidden' && isShown) return false;
+        }
         // Size Filter
         if (selectedSizeFilter !== 'all') {
           const prodSize = (p.size || '').trim().toLowerCase();
@@ -116,12 +136,19 @@ export const ProductCatalogSection: React.FC = () => {
         if (sortBy === 'popular') return (b.mrp || 0) - (a.mrp || 0);
         return 0;
       });
-  }, [products, selectedSizeFilter, selectedCategory, searchQuery, sortBy, adminSettings]);
+  }, [visibleBaseProducts, isOwnerAdminOnly, adminVisibilityFilter, selectedSizeFilter, selectedCategory, searchQuery, sortBy, adminSettings]);
+
+  const toggleSelectCatalogProduct = (productId: string) => {
+    setSelectedCatalogIds(prev =>
+      prev.includes(productId) ? prev.filter(id => id !== productId) : [...prev, productId]
+    );
+  };
 
   const clearAllFilters = () => {
     setSearchQuery('');
     setSelectedCategory('all');
     setSelectedSizeFilter('all');
+    setAdminVisibilityFilter('all');
     setSortBy('price-asc');
   };
 
@@ -143,17 +170,13 @@ export const ProductCatalogSection: React.FC = () => {
         </div>
       </div>
 
-      {/* Admin Master Controller (Visible ONLY to verified Owner Admin — never customers or Factory Staff) */}
-      {isAdminUnlocked && (
+      {/* Admin Selective Visibility & Selling Price Controller (Visible ONLY to verified Owner Admin — never customers or Factory Staff) */}
+      {isOwnerAdminOnly && (
         <div className="bg-gradient-to-r from-neutral-900 via-[#1a1710] to-neutral-900 border-2 border-[#C5A059]/60 rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="flex items-start sm:items-center gap-3.5">
               <div className="w-11 h-11 rounded-2xl bg-[#C5A059]/20 border border-[#C5A059]/40 flex items-center justify-center text-[#DFC283] shrink-0">
-                {isAllProductsShown ? (
-                  <Eye className="w-6 h-6 text-[#C5A059]" />
-                ) : (
-                  <EyeOff className="w-6 h-6 text-rose-400" />
-                )}
+                <Eye className="w-6 h-6 text-[#C5A059]" />
               </div>
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -161,14 +184,13 @@ export const ProductCatalogSection: React.FC = () => {
                     Admin Only Controller
                   </span>
                   <h3 className="text-sm sm:text-base font-bold text-white">
-                    All Products Visibility &amp; Selling Price
+                    Selective Product Visibility &amp; Selling Price
                   </h3>
                 </div>
-                <p className="text-xs text-neutral-400 mt-1">
-                  Catalog Visibility:{' '}
-                  <span className={`font-black ${isAllProductsShown ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {isAllProductsShown ? '● SHOW (Visible to All)' : '○ NOT SHOW (Hidden from Customers & Staff)'}
-                  </span>
+                <p className="text-xs text-neutral-400 mt-1 tabular-nums">
+                  <span className="font-black text-emerald-400">{shownCount} SHOW</span>
+                  {' '}•{' '}
+                  <span className="font-black text-rose-400">{hiddenCount} NOT SHOW</span>
                   {' '}• Selling Price:{' '}
                   <span className={`font-black ${adminSettings?.showSellingPrice !== false ? 'text-emerald-400' : 'text-amber-400'}`}>
                     {adminSettings?.showSellingPrice !== false ? 'ON (Offers Active)' : 'OFF (MRP Only)'}
@@ -178,25 +200,23 @@ export const ProductCatalogSection: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-              {/* Admin-Only All Products SHOW / NOT SHOW Button */}
-              <button
-                type="button"
-                id="catalog-all-products-visibility-toggle-btn"
-                onClick={() => toggleAllProductsVisibility(!isAllProductsShown)}
-                className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2.5 cursor-pointer shadow-lg active:scale-95 border ${
-                  isAllProductsShown
-                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-400 ring-2 ring-emerald-400/30'
-                    : 'bg-gradient-to-r from-rose-700 to-red-700 hover:from-rose-600 hover:to-red-600 text-white border-rose-400 ring-2 ring-rose-500/30'
-                }`}
-                title={isAllProductsShown ? 'Click to set All Products to NOT SHOW (Hide from storefront)' : 'Click to SHOW All Products on storefront'}
-              >
-                {isAllProductsShown ? (
-                  <Eye className="w-4 h-4 text-white shrink-0" />
-                ) : (
-                  <EyeOff className="w-4 h-4 text-white shrink-0" />
-                )}
-                <span>All Products: {isAllProductsShown ? 'SHOW' : 'NOT SHOW'}</span>
-              </button>
+              {/* Filter Tabs for Owner Admin */}
+              <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-black/50 border border-neutral-700">
+                {(['all', 'shown', 'hidden'] as const).map(mode => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setAdminVisibilityFilter(mode)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black transition-all cursor-pointer ${
+                      adminVisibilityFilter === mode
+                        ? 'bg-[#C5A059] text-black shadow-xs'
+                        : 'text-neutral-300 hover:text-white hover:bg-white/10'
+                    }`}
+                  >
+                    {mode === 'all' ? `All (${products.length})` : mode === 'shown' ? `SHOW (${shownCount})` : `NOT SHOW (${hiddenCount})`}
+                  </button>
+                ))}
+              </div>
 
               {/* ONE Consolidated Master Selling Price ON/OFF Button (Admin Only) */}
               <button
@@ -216,16 +236,6 @@ export const ProductCatalogSection: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${adminSettings?.showSellingPrice !== false ? 'bg-white animate-pulse' : 'bg-amber-400'}`} />
                   <span>Selling Price: {adminSettings?.showSellingPrice !== false ? 'ON' : 'OFF'}</span>
-                  <span className="text-[10px] font-bold opacity-80 hidden sm:inline">
-                    {adminSettings?.showSellingPrice !== false ? '(Offers Active)' : '(MRP Only)'}
-                  </span>
-                </div>
-                <div className={`w-10 h-5 rounded-full p-0.5 transition-colors duration-200 flex items-center ${
-                  adminSettings?.showSellingPrice !== false ? 'bg-white/30 justify-end' : 'bg-black/60 justify-start'
-                }`}>
-                  <div className={`w-4 h-4 rounded-full shadow-sm transform ${
-                    adminSettings?.showSellingPrice !== false ? 'bg-white' : 'bg-amber-400'
-                  }`} />
                 </div>
               </button>
 
@@ -243,33 +253,77 @@ export const ProductCatalogSection: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {/* Selective Multi-Select Batch Action Toolbar (Owner Admin Only) */}
+          <div className="pt-3 border-t border-[#C5A059]/20 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-neutral-300 font-semibold">
+                Selective Visibility: Click <strong className="text-[#DFC283]">SHOW / NOT SHOW</strong> on any card or select multiple below
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedCatalogIds(filteredProducts.map(p => p.id))}
+                className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-[#DFC283] border border-[#C5A059]/30 font-bold cursor-pointer"
+              >
+                Select Visible ({filteredProducts.length})
+              </button>
+              {selectedCatalogIds.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedCatalogIds([])}
+                  className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-neutral-300 border border-neutral-700 font-bold cursor-pointer"
+                >
+                  Clear ({selectedCatalogIds.length})
+                </button>
+              )}
+            </div>
+
+            {selectedCatalogIds.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  id="catalog-batch-show-selected-btn"
+                  onClick={async () => {
+                    await setSelectedProductsVisibility(selectedCatalogIds, true);
+                    setSelectedCatalogIds([]);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Show Selected ({selectedCatalogIds.length})</span>
+                </button>
+                <button
+                  type="button"
+                  id="catalog-batch-not-show-selected-btn"
+                  onClick={async () => {
+                    await setSelectedProductsVisibility(selectedCatalogIds, false);
+                    setSelectedCatalogIds([]);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <EyeOff className="w-3.5 h-3.5" />
+                  <span>Not Show Selected ({selectedCatalogIds.length})</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {!isAllProductsShown ? (
+      {!isOwnerAdminOnly && products.length > 0 && visibleBaseProducts.length === 0 ? (
         <div className="bg-[#121212] border border-dashed border-[#C5A059]/40 rounded-3xl p-10 sm:p-14 text-center max-w-2xl mx-auto space-y-4 shadow-xl">
           <div className="w-16 h-16 rounded-2xl bg-[#181818] border border-[#C5A059]/30 text-[#DFC283] mx-auto flex items-center justify-center">
             <EyeOff className="w-8 h-8 text-[#C5A059]" />
           </div>
           <div className="space-y-1.5">
             <h3 className="font-heading text-xl font-bold text-white">
-              Product Catalog Currently Hidden
+              Product Catalog Temporarily Unavailable
             </h3>
             <p className="text-xs sm:text-sm text-neutral-400 max-w-md mx-auto leading-relaxed">
-              The bottled water catalog is temporarily set to <strong className="text-[#DFC283]">Not Show</strong> by the store administrator. You can still design custom branded bottles or contact us directly for bulk bookings.
+              No catalog products are currently enabled for storefront display. You can still design custom branded bottles or contact us directly for bulk bookings.
             </p>
           </div>
           <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
-            {isAdminUnlocked && (
-              <button
-                type="button"
-                onClick={() => toggleAllProductsVisibility(true)}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black shadow-md transition-all cursor-pointer flex items-center gap-2"
-              >
-                <Eye className="w-4 h-4" />
-                <span>Show All Products (Admin)</span>
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setCurrentSection('custom-design')}
@@ -389,10 +443,10 @@ export const ProductCatalogSection: React.FC = () => {
       </div>
 
       {/* Results Count & Clear Filter Indicator */}
-      {(searchQuery || selectedSizeFilter !== 'all' || selectedCategory !== 'all') && (
+      {(searchQuery || selectedSizeFilter !== 'all' || selectedCategory !== 'all' || (isOwnerAdminOnly && adminVisibilityFilter !== 'all')) && (
         <div className="flex items-center justify-between text-xs text-neutral-300 bg-[#161616] px-4 py-2 rounded-xl border border-[#C5A059]/30">
           <span>
-            Showing <strong className="text-[#DFC283]">{filteredProducts.length}</strong> of <strong>{products.length}</strong> products matching filters
+            Showing <strong className="text-[#DFC283]">{filteredProducts.length}</strong> of <strong>{visibleBaseProducts.length}</strong> products matching filters
           </span>
           <button
             onClick={clearAllFilters}
@@ -407,7 +461,12 @@ export const ProductCatalogSection: React.FC = () => {
       {filteredProducts.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
           {filteredProducts.map(product => (
-            <ProductCard key={product.id} product={product} />
+            <ProductCard
+              key={product.id}
+              product={product}
+              isSelected={isOwnerAdminOnly ? selectedCatalogIds.includes(product.id) : false}
+              onToggleSelect={isOwnerAdminOnly ? toggleSelectCatalogProduct : undefined}
+            />
           ))}
         </div>
       ) : (

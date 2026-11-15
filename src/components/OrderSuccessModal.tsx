@@ -34,12 +34,12 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
     showToast,
     openInvoiceForOrder,
     isAdminUnlocked,
-    currentUser
+    isFactoryStaffUnlocked
   } = useStore();
   const [copied, setCopied] = useState(false);
   const [isRetryingWhatsApp, setIsRetryingWhatsApp] = useState(false);
 
-  const isAdmin = Boolean(isAdminUnlocked || currentUser?.role === 'admin' || currentUser?.role === 'owner');
+  const isAdmin = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
   const whatsAppUrl = getWhatsAppDirectUrl(order);
 
   const handleCopyId = () => {
@@ -50,7 +50,7 @@ export const OrderSuccessModal: React.FC<Props> = ({ order, onClose }) => {
   };
 
   const handleOpenWhatsApp = () => {
-    window.open(whatsAppUrl, '_blank');
+    window.open(whatsAppUrl, '_blank', 'noopener,noreferrer');
   };
 
   const handleRetryWhatsApp = async () => {

@@ -218,7 +218,9 @@ export async function registerWithEmail(
   await updateProfile(user, { displayName: fullName });
 
   const isAuthorizedAdmin = Boolean(
-    email && ['mdhussain170707@gmail.com', 'mdc37332@gmail.com'].includes(email.toLowerCase())
+    user.emailVerified &&
+      email &&
+      ['mdhussain170707@gmail.com', 'mdc37332@gmail.com'].includes(email.toLowerCase())
   );
 
   // Save full profile in Firestore
@@ -275,7 +277,9 @@ export async function ensureCustomerProfileDoc(user: User): Promise<CustomerProf
     const userDocRef = doc(db, 'users', user.uid);
     const snap = await getDoc(userDocRef);
     const isAuthorizedAdmin = Boolean(
-      user.email && ['mdhussain170707@gmail.com', 'mdc37332@gmail.com'].includes(user.email.toLowerCase())
+      user.emailVerified &&
+        user.email &&
+        ['mdhussain170707@gmail.com', 'mdc37332@gmail.com'].includes(user.email.toLowerCase())
     );
 
     if (snap.exists()) {
@@ -551,7 +555,11 @@ export function subscribeToProducts(onProductsChange: (products: Product[]) => v
           snapshot.forEach(docSnap => {
             const item = docSnap.data() as Product;
             if (item && item.id) {
-              prods.push(item);
+              const normalizedVisible = item.isVisible !== false && !(Array.isArray(item.tags) && item.tags.includes('hidden_not_show'));
+              prods.push({
+                ...item,
+                isVisible: normalizedVisible
+              });
             }
           });
 
@@ -625,8 +633,10 @@ export async function saveProductToDb(
   }
 
   const nextVersion = (product.version || existingProduct?.version || 0) + 1;
+  const normalizedIsVisible = product.isVisible !== false && !(Array.isArray(product.tags) && product.tags.includes('hidden_not_show'));
   const enrichedProduct: Product = {
     ...product,
+    isVisible: normalizedIsVisible,
     version: nextVersion,
     updatedAt: now,
     updatedBy: adminEmail,
@@ -697,6 +707,7 @@ export async function saveProductToDb(
       'size',
       'category',
       'inStock',
+      'isVisible',
       'stockStatus',
       'stockCount',
       'discountPercent',
@@ -1002,8 +1013,13 @@ export function subscribeToOrders(onOrdersChange: (orders: Order[]) => void): ()
     return unsubscribe;
   } catch (e) {
     console.warn('Error setting up orders subscription:', e);
-    const cached = safeStorage.getItem(LS_ORDERS_KEY);
-    onOrdersChange(cached ? JSON.parse(cached) : []);
+    try {
+      const cached = safeStorage.getItem(LS_ORDERS_KEY);
+      const parsed = cached ? JSON.parse(cached) : [];
+      onOrdersChange(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      onOrdersChange([]);
+    }
     return () => {};
   }
 }
@@ -1175,17 +1191,27 @@ export async function updateOrderWhatsAppStatusInDb(
   try {
     const orderDoc = doc(db, 'orders', orderId);
     if (typeof statusOrNotification === 'object') {
-      await updateDoc(orderDoc, {
-        whatsAppNotification: statusOrNotification,
-      });
+      await setDoc(
+        orderDoc,
+        sanitizeForFirestore({ whatsAppNotification: statusOrNotification }),
+        { merge: true }
+      );
     } else {
-      await updateDoc(orderDoc, {
-        'whatsAppNotification.status': statusOrNotification,
-        'whatsAppNotification.lastAttempt': now,
-        ...(statusOrNotification === 'SENT' ? { 'whatsAppNotification.sentAt': now } : {})
-      });
+      const notificationUpdate: Partial<WhatsAppNotificationState> = {
+        status: statusOrNotification,
+        lastAttempt: now,
+        ...(statusOrNotification === 'SENT' || statusOrNotification === 'ACKNOWLEDGED' ? { sentAt: now } : {}),
+      };
+      await setDoc(
+        orderDoc,
+        sanitizeForFirestore({ whatsAppNotification: notificationUpdate }),
+        { merge: true }
+      );
     }
   } catch (err) {
+    if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+      handleFirestoreError(err, OperationType.UPDATE, `orders/${orderId}`);
+    }
     console.warn('Firestore update WhatsApp status error:', err);
   }
 }
@@ -1402,8 +1428,13 @@ export function subscribeToInvoices(onInvoicesChange: (invoices: Invoice[]) => v
     return unsubscribe;
   } catch (e) {
     console.warn('Error setting up invoices subscription:', e);
-    const cached = safeStorage.getItem('hh_mineral_invoices_v1');
-    onInvoicesChange(cached ? JSON.parse(cached) : []);
+    try {
+      const cached = safeStorage.getItem('hh_mineral_invoices_v1');
+      const parsed = cached ? JSON.parse(cached) : [];
+      onInvoicesChange(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      onInvoicesChange([]);
+    }
     return () => {};
   }
 }
@@ -1457,4 +1488,117 @@ export async function deleteAllInvoicesFromDb(): Promise<void> {
     console.warn('Local storage clear invoices error:', e);
   }
 }
+
+/**
+ * Mirrors Master AI Orchestrator tasks, cross-agent messages, and approvals
+ * to Firestore when an authorized verified Admin Firebase session is signed in.
+ */
+export async function syncAiOrchestratorSnapshotToFirestore(snapshot: {
+  tasks?: Array<Record<string, any>>;
+  crossAgentMessages?: Array<Record<string, any>>;
+  approvals?: Array<Record<string, any>>;
+}): Promise<{ syncedCount: number; skippedReason?: string }> {
+  const email = auth.currentUser?.email?.toLowerCase();
+  const isVerifiedOwner = Boolean(
+    auth.currentUser?.emailVerified &&
+      email &&
+      ['mdhussain170707@gmail.com', 'mdc37332@gmail.com'].includes(email)
+  );
+  if (!isVerifiedOwner) {
+    return { syncedCount: 0, skippedReason: 'Sign in with verified Owner Google/Firebase account to enable client Firestore AI mirror.' };
+  }
+
+  let syncedCount = 0;
+  const recentTasks = (snapshot.tasks || []).slice(0, 15);
+  for (const t of recentTasks) {
+    if (!t?.id) continue;
+    try {
+      await setDoc(
+        doc(db, 'ai_tasks', String(t.id)),
+        sanitizeForFirestore({
+          id: String(t.id),
+          agentId: String(t.agentId || 'AGENT_00_ORCHESTRATOR').slice(0, 64),
+          agentName: String(t.agentName || 'AI Agent').slice(0, 120),
+          eventSource: String(t.eventSource || '').slice(0, 240),
+          taskDescription: String(t.taskDescription || '').slice(0, 600),
+          authorizationLevel: String(t.authorizationLevel || 'AUTO_LEVEL_3').slice(0, 64),
+          status: String(t.status || 'COMPLETED').slice(0, 40),
+          verificationStatus: String(t.verificationStatus || 'VERIFIED').slice(0, 40),
+          tokensUsed: Number(t.tokensUsed || 0),
+          startedAt: String(t.startedAt || t.createdAt || new Date().toISOString()).slice(0, 100),
+          completedAt: t.completedAt ? String(t.completedAt).slice(0, 100) : null,
+          createdAt: String(t.createdAt || new Date().toISOString()).slice(0, 100),
+        }),
+        { merge: true }
+      );
+      syncedCount++;
+    } catch (err) {
+      if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+        handleFirestoreError(err, OperationType.WRITE, `ai_tasks/${t.id}`);
+      }
+    }
+  }
+
+  const recentMsgs = (snapshot.crossAgentMessages || []).slice(0, 20);
+  for (const m of recentMsgs) {
+    if (!m?.id) continue;
+    try {
+      await setDoc(
+        doc(db, 'ai_agent_messages', String(m.id)),
+        sanitizeForFirestore({
+          id: String(m.id),
+          correlationId: String(m.correlationId || 'CORR').slice(0, 128),
+          taskId: m.taskId ? String(m.taskId).slice(0, 128) : null,
+          fromAgentId: String(m.fromAgentId || 'AGENT_00_ORCHESTRATOR').slice(0, 64),
+          fromAgentName: String(m.fromAgentName || '').slice(0, 120),
+          toAgentId: String(m.toAgentId || 'AGENT_01_CEO').slice(0, 64),
+          toAgentName: String(m.toAgentName || '').slice(0, 120),
+          intent: String(m.intent || 'HANDOFF').slice(0, 40),
+          subject: String(m.subject || '').slice(0, 300),
+          status: String(m.status || 'DELIVERED').slice(0, 40),
+          priority: String(m.priority || 'NORMAL').slice(0, 20),
+          createdAt: String(m.createdAt || new Date().toISOString()).slice(0, 100),
+        }),
+        { merge: true }
+      );
+      syncedCount++;
+    } catch (err) {
+      if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+        handleFirestoreError(err, OperationType.WRITE, `ai_agent_messages/${m.id}`);
+      }
+    }
+  }
+
+  const recentApprovals = (snapshot.approvals || []).slice(0, 15);
+  for (const a of recentApprovals) {
+    if (!a?.id) continue;
+    try {
+      await setDoc(
+        doc(db, 'ai_approvals', String(a.id)),
+        sanitizeForFirestore({
+          id: String(a.id),
+          taskId: a.taskId ? String(a.taskId).slice(0, 128) : null,
+          agentId: String(a.agentId || 'AGENT_00_ORCHESTRATOR').slice(0, 64),
+          agentName: String(a.agentName || '').slice(0, 120),
+          actionType: String(a.actionType || 'OTHER_SENSITIVE_ACTION').slice(0, 64),
+          title: String(a.title || '').slice(0, 200),
+          reason: String(a.reason || '').slice(0, 1000),
+          expectedImpact: String(a.expectedImpact || '').slice(0, 1000),
+          status: String(a.status || 'PENDING').slice(0, 40),
+          ownerEmail: a.ownerEmail ? String(a.ownerEmail).slice(0, 200) : null,
+          createdAt: String(a.createdAt || new Date().toISOString()).slice(0, 100),
+        }),
+        { merge: true }
+      );
+      syncedCount++;
+    } catch (err) {
+      if (err instanceof Error && (err.message.includes('permission') || err.message.includes('insufficient'))) {
+        handleFirestoreError(err, OperationType.WRITE, `ai_approvals/${a.id}`);
+      }
+    }
+  }
+
+  return { syncedCount };
+}
+
 

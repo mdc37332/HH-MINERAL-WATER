@@ -22,6 +22,7 @@ export const products = pgTable('products', {
   description: text('description').notNull(),
   shortDesc: text('short_desc').notNull(),
   inStock: boolean('in_stock').default(true).notNull(),
+  isVisible: boolean('is_visible').default(true).notNull(),
   minOrderQty: integer('min_order_qty').default(1).notNull(),
   category: text('category').notNull(),
   badge: text('badge'),
@@ -161,3 +162,124 @@ export const invoicesRelations = relations(invoices, ({ one }) => ({
     references: [users.uid],
   }),
 }));
+
+// ============================================================================
+// LEVEL 3 AUTONOMOUS AI BUSINESS MANAGEMENT TABLES (ADDITIVE MIGRATION)
+// ============================================================================
+
+export const aiAgents = pgTable('ai_agents', {
+  id: text('id').primaryKey(), // AGENT_00_ORCHESTRATOR .. AGENT_10_REPORTING
+  code: text('code').notNull(),
+  name: text('name').notNull(),
+  role: text('role').notNull(),
+  status: text('status').default('ACTIVE').notNull(), // ACTIVE | PAUSED | STOPPED | ERROR
+  autonomyLevel: text('autonomy_level').default('LEVEL_3_MAX_CONTROLLED').notNull(),
+  permissions: jsonb('permissions').notNull(),
+  tasksCompleted: integer('tasks_completed').default(0).notNull(),
+  tasksFailed: integer('tasks_failed').default(0).notNull(),
+  lastRunAt: timestamp('last_run_at'),
+  lastSummary: text('last_summary'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const aiTasks = pgTable('ai_tasks', {
+  id: text('id').primaryKey(), // TASK-...
+  agentId: text('agent_id').notNull(),
+  agentName: text('agent_name').notNull(),
+  eventSource: text('event_source').notNull(),
+  idempotencyKey: text('idempotency_key').unique(),
+  taskDescription: text('task_description').notNull(),
+  executionPlan: jsonb('execution_plan').notNull(),
+  authorizationLevel: text('authorization_level').notNull(), // AUTO_LEVEL_3 | OWNER_APPROVAL_REQUIRED
+  status: text('status').default('PENDING').notNull(), // PENDING | RUNNING | COMPLETED | AWAITING_APPROVAL | FAILED | DEAD_LETTER
+  retryCount: integer('retry_count').default(0).notNull(),
+  maxRetries: integer('max_retries').default(3).notNull(),
+  nextRetryAt: timestamp('next_retry_at'),
+  startedAt: timestamp('started_at').defaultNow().notNull(),
+  completedAt: timestamp('completed_at'),
+  executionResult: jsonb('execution_result'),
+  errorInfo: text('error_info'),
+  verificationStatus: text('verification_status').default('PENDING').notNull(), // VERIFIED | UNVERIFIED | FAILED | PENDING
+  toolCalls: jsonb('tool_calls'),
+  tokensUsed: integer('tokens_used').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const aiApprovals = pgTable('ai_approvals', {
+  id: text('id').primaryKey(), // APR-...
+  taskId: text('task_id'),
+  agentId: text('agent_id').notNull(),
+  agentName: text('agent_name').notNull(),
+  actionType: text('action_type').notNull(),
+  title: text('title').notNull(),
+  reason: text('reason').notNull(),
+  expectedImpact: text('expected_impact').notNull(),
+  proposedPayload: jsonb('proposed_payload').notNull(),
+  status: text('status').default('PENDING').notNull(), // PENDING | APPROVED | REJECTED | EXECUTED
+  ownerEmail: text('owner_email'),
+  decisionNote: text('decision_note'),
+  decidedAt: timestamp('decided_at'),
+  executedAt: timestamp('executed_at'),
+  executionResult: jsonb('execution_result'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const aiMemory = pgTable('ai_memory', {
+  id: text('id').primaryKey(),
+  memoryKey: text('memory_key').notNull().unique(),
+  category: text('category').notNull(),
+  sourceType: text('source_type').notNull(), // VERIFIED_FACT | OWNER_RULE | AI_PREDICTION
+  title: text('title').notNull(),
+  content: jsonb('content').notNull(),
+  editableByOwner: boolean('editable_by_owner').default(true).notNull(),
+  confidence: integer('confidence').default(100).notNull(),
+  updatedBy: text('updated_by').default('SYSTEM').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const aiSchedules = pgTable('ai_schedules', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  cadence: text('cadence').notNull(), // CONTINUOUS | DAILY | WEEKLY | MONTHLY
+  timezone: text('timezone').default('Asia/Kolkata').notNull(),
+  agentId: text('agent_id').notNull(),
+  enabled: boolean('enabled').default(true).notNull(),
+  intervalMinutes: integer('interval_minutes').default(1440).notNull(),
+  lastRunAt: timestamp('last_run_at'),
+  nextRunAt: timestamp('next_run_at'),
+  lastStatus: text('last_status').default('IDLE').notNull(),
+  lastSummary: text('last_summary'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const aiSystemEvents = pgTable('ai_system_events', {
+  id: text('id').primaryKey(),
+  eventType: text('event_type').notNull(),
+  severity: text('severity').default('INFO').notNull(), // INFO | WARNING | CRITICAL
+  source: text('source').notNull(),
+  summary: text('summary').notNull(),
+  details: jsonb('details'),
+  resolved: boolean('resolved').default(false).notNull(),
+  tokensUsed: integer('tokens_used').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+export const aiAgentMessages = pgTable('ai_agent_messages', {
+  id: text('id').primaryKey(), // MSG-...
+  correlationId: text('correlation_id').notNull(),
+  taskId: text('task_id'),
+  fromAgentId: text('from_agent_id').notNull(),
+  fromAgentName: text('from_agent_name').notNull(),
+  toAgentId: text('to_agent_id').notNull(),
+  toAgentName: text('to_agent_name').notNull(),
+  intent: text('intent').notNull(), // HANDOFF | DATA_REQUEST | VERIFICATION_REPORT | RISK_ALERT | APPROVAL_ESCALATION | RECOVERY_NOTICE
+  subject: text('subject').notNull(),
+  payload: jsonb('payload').notNull(),
+  status: text('status').default('DELIVERED').notNull(), // PENDING | DELIVERED | ACKNOWLEDGED | RESOLVED
+  priority: text('priority').default('NORMAL').notNull(), // LOW | NORMAL | HIGH | CRITICAL
+  firestoreSynced: boolean('firestore_synced').default(false).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+

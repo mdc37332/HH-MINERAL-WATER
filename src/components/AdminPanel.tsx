@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useStore } from '../context/StoreContext';
+import { useStore, isProductVisibleInStore } from '../context/StoreContext';
 import { Product, Order, OrderStatus, AdminSettings, ProductAuditLog, Invoice, CustomerInfo } from '../types';
 import { AuditLogItem } from '../lib/api';
 import {
@@ -74,7 +74,10 @@ import {
   MapPin,
   Navigation,
   Scale,
-  BookOpen
+  BookOpen,
+  QrCode,
+  ScanLine,
+  Cpu
 } from 'lucide-react';
 import { DriverNavigationModal } from './DriverNavigationModal';
 import { getWhatsAppDirectUrl, OWNER_WHATSAPP_NUMBER } from '../lib/whatsapp';
@@ -84,11 +87,16 @@ import { FleetDispatchTab } from './admin/FleetDispatchTab';
 import { PlantExpensesTab } from './admin/PlantExpensesTab';
 import { AccountingAuditTab } from './admin/AccountingAuditTab';
 import { DeliveryChallanModal } from './admin/DeliveryChallanModal';
+import { OrderDispatchQrModal } from './admin/OrderDispatchQrModal';
+import { DispatchQrUtilityTab } from './admin/DispatchQrUtilityTab';
+import { DispatchBoardTab } from './admin/DispatchBoardTab';
+import { QuickDispatchScannerModal } from './admin/QuickDispatchScannerModal';
 import { AddCustomerModal } from './admin/AddCustomerModal';
 import { OfflineInvoiceModal } from './admin/OfflineInvoiceModal';
 import { CustomDesignStudioTab } from './admin/CustomDesignStudioTab';
 import { AdminFactoryLocationEditor } from './admin/AdminFactoryLocationEditor';
 import { InventoryStockTab } from './admin/InventoryStockTab';
+import { AiCommandCenterTab } from './admin/AiCommandCenterTab';
 import { DEFAULT_ADMIN_SETTINGS, INITIAL_PRODUCTS, INITIAL_PLANT_EXPENSES } from '../data/initialProducts';
 import { compressImageToDataUrl } from '../lib/imageCompressor';
 import { safeStorage } from '../lib/storage';
@@ -129,7 +137,8 @@ export const AdminPanel: React.FC = () => {
     adminSettings,
     updateAdminSettings,
     updateProduct,
-    toggleAllProductsVisibility,
+    toggleProductVisibility,
+    setSelectedProductsVisibility,
     toggleAllProductsSellingPrice,
     deleteProduct,
     deleteAllProducts,
@@ -176,7 +185,8 @@ export const AdminPanel: React.FC = () => {
     sendLowStockAlertToWhatsApp,
     isLowStockBannerDismissed,
     dismissLowStockBanner,
-    resetLowStockBannerDismissal
+    resetLowStockBannerDismissal,
+    pendingDispatchScan
   } = useStore();
 
   // Role discriminator: Factory Staff Mode is active when staff is logged in and master admin is not unlocked
@@ -219,6 +229,8 @@ export const AdminPanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<
     'dashboard' |
     'orders' |
+    'dispatch-board' |
+    'dispatch-qr' |
     'inventory' |
     'bulk-inquiries' |
     'water-quality' |
@@ -231,7 +243,8 @@ export const AdminPanel: React.FC = () => {
     'visuals' |
     'customers' |
     'settings' |
-    'security-audit'
+    'security-audit' |
+    'ai-command-center'
   >('dashboard');
   const [focusedInvoiceIdForAccounting, setFocusedInvoiceIdForAccounting] = useState<string | null>(null);
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -244,13 +257,21 @@ export const AdminPanel: React.FC = () => {
   const [auditLogsList, setAuditLogsList] = useState<AuditLogItem[]>([]);
   const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState(false);
 
-  // Product Edit Modal state
+  // Product Edit Modal & Selective Visibility state
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isNewProductModal, setIsNewProductModal] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [productVisibilityFilter, setProductVisibilityFilter] = useState<'all' | 'shown' | 'hidden'>('all');
   const [showProductAuditModal, setShowProductAuditModal] = useState(false);
   const [productAuditSearchQuery, setProductAuditSearchQuery] = useState('');
   const [productAuditProductFilter, setProductAuditProductFilter] = useState('all');
+
+  const toggleSelectAdminProduct = (productId: string) => {
+    setSelectedProductIds(prev =>
+      prev.includes(productId) ? prev.filter(id => id !== productId) : [...prev, productId]
+    );
+  };
 
   // Product Deletion & Action Confirmation Modals
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
@@ -265,8 +286,10 @@ export const AdminPanel: React.FC = () => {
   const [isDeletingInvoice, setIsDeletingInvoice] = useState(false);
   const [isConfirmDeleteAllInvoicesOpen, setIsConfirmDeleteAllInvoicesOpen] = useState(false);
 
-  // Delivery Challan Modal & Add Customer Modal & Driver Navigation Modal
+  // Delivery Challan Modal, Dispatch QR Modal, Quick Scanner Modal, Add Customer Modal & Driver Navigation Modal
   const [selectedChallanOrder, setSelectedChallanOrder] = useState<Order | null>(null);
+  const [selectedQrOrder, setSelectedQrOrder] = useState<Order | null>(null);
+  const [isQuickDeliverScannerOpen, setIsQuickDeliverScannerOpen] = useState(false);
   const [selectedNavOrder, setSelectedNavOrder] = useState<Order | null>(null);
   const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
   const [isOfflineInvoiceModalOpen, setIsOfflineInvoiceModalOpen] = useState(false);
@@ -374,16 +397,23 @@ export const AdminPanel: React.FC = () => {
   }, [activeTab]);
 
   // Staff Access Rights Boundary Guard:
-  // Staff has access to: Dashboard Overview, Orders Management, Bulk & Events, Water Quality & Lab Logs, GST Invoices, Custom Design Studio, and Hero & Bottle Images.
+  // Staff has access to: Dashboard Overview, Orders Management, Dispatch Board, Dispatch QR Counter, Bulk & Events, Water Quality & Lab Logs, GST Invoices, Custom Design Studio, and Hero & Bottle Images.
   // Staff is NOT granted access to: Inventory & Stock, Product Catalog, Expenses, Accounting & CA Audit, Settings, Customers, or Security Audit.
   useEffect(() => {
     if (isFactoryStaffMode) {
-      const staffAllowedTabs = ['dashboard', 'orders', 'bulk-inquiries', 'water-quality', 'invoices', 'custom-orders', 'visuals'];
+      const staffAllowedTabs = ['dashboard', 'orders', 'dispatch-board', 'dispatch-qr', 'bulk-inquiries', 'water-quality', 'invoices', 'custom-orders', 'visuals'];
       if (!staffAllowedTabs.includes(activeTab)) {
         setActiveTab('dashboard');
       }
     }
   }, [isFactoryStaffMode, activeTab]);
+
+  // Auto-open Dispatch QR Counter tab when a dispatch QR verification URL is scanned
+  useEffect(() => {
+    if (pendingDispatchScan && (isAdminUnlocked || isFactoryStaffUnlocked)) {
+      setActiveTab('dispatch-qr');
+    }
+  }, [pendingDispatchScan, isAdminUnlocked, isFactoryStaffUnlocked]);
 
   // Load audit logs when switching to security tab
   useEffect(() => {
@@ -1105,16 +1135,19 @@ export const AdminPanel: React.FC = () => {
       hsnCode: editingProduct.hsnCode?.trim() || '2201',
       stockCount: editingProduct.stockCount !== undefined ? Number(editingProduct.stockCount) : 500,
       stockStatus: editingProduct.inStock === false ? 'Out of Stock' : (editingProduct.stockStatus || 'In Stock'),
+      isVisible: editingProduct.isVisible !== false,
       showSellingPrice: editingProduct.showSellingPrice !== false,
       tags: (() => {
         const raw = Array.isArray(editingProduct.tags) && editingProduct.tags.length > 0
           ? [...editingProduct.tags]
           : ['Pure Mineral', 'Natural Source', 'UV Treated'];
-        if (editingProduct.showSellingPrice === false) {
-          return raw.includes('selling_price_off') ? raw : [...raw, 'selling_price_off'];
-        } else {
-          return raw.filter(t => t !== 'selling_price_off');
-        }
+        let next = editingProduct.showSellingPrice === false
+          ? (raw.includes('selling_price_off') ? raw : [...raw, 'selling_price_off'])
+          : raw.filter(t => t !== 'selling_price_off');
+        next = editingProduct.isVisible === false
+          ? (next.includes('hidden_not_show') ? next : [...next, 'hidden_not_show'])
+          : next.filter(t => t !== 'hidden_not_show');
+        return next;
       })(),
       customDesignPrice,
       image: primaryImage,
@@ -1856,6 +1889,34 @@ export const AdminPanel: React.FC = () => {
 
 
 
+          {/* Quick Scan-to-Deliver Modal Trigger */}
+          <button
+            type="button"
+            id="btn-open-quick-deliver-scanner"
+            onClick={() => setIsQuickDeliverScannerOpen(true)}
+            className="text-xs font-black px-3.5 py-2 rounded-xl transition-all bg-gradient-to-r from-[#C5A059] to-[#DFC283] hover:brightness-110 text-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+            title="Open Dispatch QR Scanner Overlay to mark matched orders as Delivered automatically"
+          >
+            <ScanLine className="w-3.5 h-3.5 text-black stroke-[2.5]" />
+            <span>Scan QR to Deliver</span>
+          </button>
+
+          {/* SELECTIVE PRODUCT VISIBILITY SUMMARY (OWNER ADMIN ONLY) */}
+          {!isFactoryStaffMode && isAdminUnlocked && (
+            <button
+              type="button"
+              id="header-btn-selective-visibility"
+              onClick={() => setActiveTab('products')}
+              className="text-xs font-bold px-3 py-2 rounded-xl bg-[#181818] hover:bg-[#222222] text-neutral-200 border border-[#333333] flex items-center gap-2 cursor-pointer transition-all tabular-nums"
+              title="Manage selective SHOW / NOT SHOW visibility per product"
+            >
+              <Eye className="w-3.5 h-3.5 text-emerald-400" />
+              <span>
+                Visible: {products.filter(p => isProductVisibleInStore(p, adminSettings)).length}/{products.length}
+              </span>
+            </button>
+          )}
+
           {!isFactoryStaffMode && (
             <button
               onClick={() => setActiveTab('security-audit')}
@@ -1971,6 +2032,8 @@ export const AdminPanel: React.FC = () => {
         {(isFactoryStaffMode ? [
           { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
           { id: 'orders', label: `Orders Management (${orders.length})`, icon: ShoppingBag, badge: newOrdersCount > 0 ? `${newOrdersCount} New` : undefined },
+          { id: 'dispatch-board', label: 'Dispatch Board', icon: Truck },
+          { id: 'dispatch-qr', label: 'Dispatch QR Counter', icon: QrCode },
           { id: 'bulk-inquiries', label: 'Bulk & Events', icon: Building2 },
           { id: 'water-quality', label: 'Water Quality & Lab Logs', icon: Sparkles },
           { id: 'invoices', label: `GST Invoices (${invoices.length})`, icon: Receipt },
@@ -1978,7 +2041,10 @@ export const AdminPanel: React.FC = () => {
           { id: 'visuals', label: 'Hero & Bottle Images', icon: ImageIcon }
         ] : [
           { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
+          { id: 'ai-command-center', label: 'AI Command Center', icon: Cpu, badge: 'Level 3' },
           { id: 'orders', label: `Orders Management (${orders.length})`, icon: ShoppingBag, badge: newOrdersCount > 0 ? `${newOrdersCount} New` : undefined },
+          { id: 'dispatch-board', label: 'Dispatch Board', icon: Truck },
+          { id: 'dispatch-qr', label: 'Dispatch QR Counter', icon: QrCode },
           { id: 'bulk-inquiries', label: 'Bulk & Events', icon: Building2 },
           { id: 'water-quality', label: 'Water Quality & Lab Logs', icon: Sparkles },
           { id: 'expenses', label: 'Plant Expenses', icon: DollarSign },
@@ -2338,41 +2404,67 @@ export const AdminPanel: React.FC = () => {
               </div>
 
               <div className="space-y-2.5">
-                {products.map(prod => {
-                  const isSellingOn = prod.showSellingPrice !== false && !(prod.tags || []).includes('selling_price_off') && adminSettings?.showSellingPrice !== false;
-                  const discountPercent = prod.mrp > prod.price ? Math.round(((prod.mrp - prod.price) / prod.mrp) * 100) : 0;
-                  return (
-                    <div
-                      key={prod.id}
-                      className="p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs"
-                    >
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-bold text-slate-800">{prod.size} Bottle</span>
-                          <span className={`text-[9px] font-black px-1.5 py-0.2 rounded border ${
-                            isSellingOn ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-slate-100 text-slate-600 border-slate-300'
-                          }`}>
-                            {isSellingOn ? 'OFFER ON' : 'MRP ONLY'}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 truncate max-w-[150px]">{prod.name}</p>
+                {(() => {
+                  const dashboardProducts = isFactoryStaffMode
+                    ? products.filter(p => isProductVisibleInStore(p, adminSettings))
+                    : products;
+                  if (dashboardProducts.length === 0) {
+                    return (
+                      <div className="p-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 text-center space-y-1.5">
+                        <EyeOff className="w-5 h-5 text-slate-400 mx-auto" />
+                        <p className="text-xs font-bold text-slate-700">
+                          No Visible Catalog Products
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          Selected products are currently set to Not Show by Owner Admin.
+                        </p>
                       </div>
-                      <div className="text-right">
-                        <div className="flex items-baseline justify-end gap-1.5">
-                          <span className="font-heading text-sm font-black text-cyan-700">₹{isSellingOn ? prod.price : prod.mrp}</span>
-                          {isSellingOn && prod.mrp > prod.price && (
-                            <span className="text-[10px] text-slate-400 line-through">₹{prod.mrp}</span>
+                    );
+                  }
+                  return dashboardProducts.map(prod => {
+                    const isSellingOn = prod.showSellingPrice !== false && !(prod.tags || []).includes('selling_price_off') && adminSettings?.showSellingPrice !== false;
+                    const isShown = isProductVisibleInStore(prod, adminSettings);
+                    const discountPercent = prod.mrp > prod.price ? Math.round(((prod.mrp - prod.price) / prod.mrp) * 100) : 0;
+                    return (
+                      <div
+                        key={prod.id}
+                        className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
+                          !isShown ? 'border-rose-200 bg-rose-50/40' : 'border-slate-200'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-slate-800">{prod.size} Bottle</span>
+                            <span className={`text-[9px] font-black px-1.5 py-0.2 rounded border ${
+                              isSellingOn ? 'bg-emerald-100 text-emerald-800 border-emerald-300' : 'bg-slate-100 text-slate-600 border-slate-300'
+                            }`}>
+                              {isSellingOn ? 'OFFER ON' : 'MRP ONLY'}
+                            </span>
+                            {!isFactoryStaffMode && !isShown && (
+                              <span className="text-[9px] font-black px-1.5 py-0.2 rounded border bg-rose-100 text-rose-800 border-rose-300">
+                                NOT SHOW
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 truncate max-w-[150px]">{prod.name}</p>
+                        </div>
+                        <div className="text-right">
+                          <div className="flex items-baseline justify-end gap-1.5">
+                            <span className="font-heading text-sm font-black text-cyan-700">₹{isSellingOn ? prod.price : prod.mrp}</span>
+                            {isSellingOn && prod.mrp > prod.price && (
+                              <span className="text-[10px] text-slate-400 line-through">₹{prod.mrp}</span>
+                            )}
+                          </div>
+                          {isSellingOn && discountPercent > 0 && (
+                            <span className="text-[9px] font-extrabold text-emerald-600 block">
+                              {discountPercent}% OFF
+                            </span>
                           )}
                         </div>
-                        {isSellingOn && discountPercent > 0 && (
-                          <span className="text-[9px] font-extrabold text-emerald-600 block">
-                            {discountPercent}% OFF
-                          </span>
-                        )}
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
             </div>
           </div>
@@ -2529,6 +2621,17 @@ export const AdminPanel: React.FC = () => {
                   <option value="offline">Offline Counter Sales</option>
                 </select>
               </div>
+
+              {/* Switch to 3-Column Dispatch Board */}
+              <button
+                type="button"
+                id="btn-orders-open-dispatch-board"
+                onClick={() => setActiveTab('dispatch-board')}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 text-xs font-bold shadow-2xs transition-colors cursor-pointer"
+              >
+                <Truck className="w-3.5 h-3.5 text-sky-700" />
+                <span>Dispatch Board</span>
+              </button>
 
               {/* Generate Offline GST Invoice Trigger */}
               <button
@@ -2962,6 +3065,22 @@ export const AdminPanel: React.FC = () => {
                           <span>Delivery Challan</span>
                         </button>
 
+                        {/* Order Dispatch QR Code & Counter Verification Modal Trigger */}
+                        <button
+                          type="button"
+                          id={`btn-order-qr-${ord.id}`}
+                          onClick={() => setSelectedQrOrder(ord)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold border shadow-2xs transition-colors cursor-pointer ${
+                            ord.dispatchVerifiedAt
+                              ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300'
+                              : 'bg-amber-50 hover:bg-amber-100 text-amber-950 border-amber-300'
+                          }`}
+                          title="View/Print unique Dispatch QR code or mark order verified at factory dispatch counter"
+                        >
+                          <QrCode className={`w-3.5 h-3.5 ${ord.dispatchVerifiedAt ? 'text-emerald-700' : 'text-amber-700'}`} />
+                          <span>{ord.dispatchVerifiedAt ? 'QR Verified ✓' : 'Dispatch QR'}</span>
+                        </button>
+
                         {/* Driver Navigation & Dispatch (Google Maps) */}
                         {ord.deliveryType !== 'self_pickup' && (
                           <button
@@ -3050,6 +3169,31 @@ export const AdminPanel: React.FC = () => {
             )}
           </div>
         </div>
+      )}
+
+      {/* TAB: LEVEL 3 AUTONOMOUS AI COMMAND CENTER (OWNER ONLY) */}
+      {activeTab === 'ai-command-center' && !isFactoryStaffMode && (
+        <AiCommandCenterTab />
+      )}
+
+      {/* TAB: VISUAL DISPATCH LOGISTICS BOARD (PENDING / IN-TRANSIT / DELIVERED) */}
+      {activeTab === 'dispatch-board' && (
+        <DispatchBoardTab
+          isFactoryStaffMode={isFactoryStaffMode}
+          onOpenDeliveryChallan={ord => setSelectedChallanOrder(ord)}
+          onOpenOrderQrModal={ord => setSelectedQrOrder(ord)}
+          onOpenDriverNav={ord => setSelectedNavOrder(ord)}
+          onOpenOrdersList={() => setActiveTab('orders')}
+        />
+      )}
+
+      {/* TAB: DISPATCH QR COUNTER & SCANNER UTILITY */}
+      {activeTab === 'dispatch-qr' && (
+        <DispatchQrUtilityTab
+          isFactoryStaffMode={isFactoryStaffMode}
+          onOpenOrderQrModal={ord => setSelectedQrOrder(ord)}
+          onOpenDeliveryChallan={ord => setSelectedChallanOrder(ord)}
+        />
       )}
 
       {/* TAB: BULK INQUIRIES & CORPORATE EVENTS */}
@@ -3563,6 +3707,7 @@ export const AdminPanel: React.FC = () => {
                         shortDesc: 'Pure natural mineral water bottle.',
                         description: 'Pure 7-stage filtration mineral water enriched with natural minerals.',
                         inStock: true,
+                        isVisible: true,
                         minOrderQty: 1,
                         category: 'Standard',
                         casePackSize: 24,
@@ -3591,80 +3736,122 @@ export const AdminPanel: React.FC = () => {
             </div>
           </div>
 
-          {/* ALL PRODUCTS VISIBILITY CONTROL — SHOW / NOT SHOW (STRICTLY ADMIN ONLY) */}
-          {!isFactoryStaffMode && isAdminUnlocked && (
-            <div className="bg-gradient-to-r from-neutral-950 via-slate-900 to-neutral-950 rounded-3xl p-5 sm:p-6 text-white border border-amber-500/40 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
-              <div className="flex items-start sm:items-center gap-4">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border shadow-inner ${
-                  adminSettings?.showAllProducts !== false
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 ring-4 ring-emerald-500/10'
-                    : 'bg-rose-500/20 text-rose-300 border-rose-500/40 ring-4 ring-rose-500/10'
-                }`}>
-                  {adminSettings?.showAllProducts !== false ? (
-                    <Eye className="w-6 h-6" />
-                  ) : (
-                    <EyeOff className="w-6 h-6" />
+          {/* SELECTIVE PRODUCT VISIBILITY CONTROL — SHOW / NOT SHOW PER PRODUCT (STRICTLY OWNER ADMIN ONLY) */}
+          {!isFactoryStaffMode && isAdminUnlocked && (() => {
+            const shownCount = products.filter(p => isProductVisibleInStore(p, adminSettings)).length;
+            const hiddenCount = products.length - shownCount;
+            const matchingTabProducts = products.filter(p => {
+              const shown = isProductVisibleInStore(p, adminSettings);
+              if (productVisibilityFilter === 'shown') return shown;
+              if (productVisibilityFilter === 'hidden') return !shown;
+              return true;
+            });
+            return (
+              <div className="bg-gradient-to-r from-neutral-950 via-slate-900 to-neutral-950 rounded-3xl p-5 sm:p-6 text-white border border-amber-500/40 shadow-xl space-y-4">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="flex items-start sm:items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border shadow-inner bg-amber-500/20 text-amber-300 border-amber-500/40">
+                      <Eye className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          Admin Only
+                        </span>
+                        <h3 className="font-heading text-base sm:text-lg font-black text-white">
+                          Selective Product Visibility — Show / Not Show
+                        </h3>
+                        <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full border bg-emerald-500/15 text-emerald-300 border-emerald-500/40 tabular-nums">
+                          {shownCount} SHOW
+                        </span>
+                        <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full border bg-rose-500/15 text-rose-300 border-rose-500/40 tabular-nums">
+                          {hiddenCount} NOT SHOW
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                        Toggle individual products <strong className="text-white">SHOW</strong> or <strong className="text-white">NOT SHOW</strong> right on any card, or select multiple products below to update them in one batch. Hidden items stay hidden from customers and factory staff.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Filter Tabs */}
+                  <div className="inline-flex items-center gap-1 p-1 rounded-2xl bg-black/50 border border-slate-700 shrink-0 self-start lg:self-auto">
+                    {(['all', 'shown', 'hidden'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => setProductVisibilityFilter(mode)}
+                        className={`px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer tabular-nums ${
+                          productVisibilityFilter === mode
+                            ? 'bg-amber-500 text-slate-950 shadow-md'
+                            : 'text-slate-300 hover:text-white hover:bg-white/10'
+                        }`}
+                      >
+                        {mode === 'all' ? `All (${products.length})` : mode === 'shown' ? `SHOW (${shownCount})` : `NOT SHOW (${hiddenCount})`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Selection & Batch Buttons */}
+                <div className="pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      id="admin-select-visible-products-btn"
+                      onClick={() => setSelectedProductIds(matchingTabProducts.map(p => p.id))}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 font-bold cursor-pointer"
+                    >
+                      Select Listed ({matchingTabProducts.length})
+                    </button>
+                    {selectedProductIds.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProductIds([])}
+                        className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 font-bold cursor-pointer"
+                      >
+                        Clear Selection ({selectedProductIds.length})
+                      </button>
+                    )}
+                    <span className="text-[11px] text-slate-400">
+                      {selectedProductIds.length > 0
+                        ? `${selectedProductIds.length} product(s) selected for batch visibility`
+                        : 'Tick checkboxes on product cards below to update selected products'}
+                    </span>
+                  </div>
+
+                  {selectedProductIds.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        id="admin-selected-products-show-btn"
+                        onClick={async () => {
+                          await setSelectedProductsVisibility(selectedProductIds, true);
+                          setSelectedProductIds([]);
+                        }}
+                        className="px-4 py-2 rounded-xl font-black text-xs bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Eye className="w-4 h-4 shrink-0" />
+                        <span>SHOW Selected ({selectedProductIds.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        id="admin-selected-products-not-show-btn"
+                        onClick={async () => {
+                          await setSelectedProductsVisibility(selectedProductIds, false);
+                          setSelectedProductIds([]);
+                        }}
+                        className="px-4 py-2 rounded-xl font-black text-xs bg-rose-600 hover:bg-rose-500 text-white shadow-lg flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <EyeOff className="w-4 h-4 shrink-0" />
+                        <span>NOT SHOW Selected ({selectedProductIds.length})</span>
+                      </button>
+                    </div>
                   )}
                 </div>
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                      Admin Only
-                    </span>
-                    <h3 className="font-heading text-base sm:text-lg font-black text-white">
-                      Storefront All Products — Show / Not Show
-                    </h3>
-                    <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 ${
-                      adminSettings?.showAllProducts !== false
-                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                        : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${adminSettings?.showAllProducts !== false ? 'bg-emerald-400 animate-ping' : 'bg-rose-400'}`} />
-                      {adminSettings?.showAllProducts !== false ? 'ALL PRODUCTS: SHOW' : 'ALL PRODUCTS: NOT SHOW (HIDDEN)'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
-                    Instantly control whether <strong className="text-white">ALL catalog products</strong> are shown or hidden on the customer storefront and staff view. Only Owner Admin can change this setting.
-                  </p>
-                </div>
               </div>
-
-              <div className="flex items-center gap-3 w-full md:w-auto shrink-0 justify-end">
-                <button
-                  type="button"
-                  id="admin-all-products-visibility-toggle-btn"
-                  onClick={() => {
-                    const isCurrentlyShown = adminSettings?.showAllProducts !== false;
-                    toggleAllProductsVisibility(!isCurrentlyShown);
-                  }}
-                  className={`w-full sm:w-auto px-5 py-3 rounded-2xl font-black text-xs transition-all flex items-center justify-between sm:justify-center gap-4 cursor-pointer shadow-xl active:scale-95 border ${
-                    adminSettings?.showAllProducts !== false
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border-emerald-400 ring-4 ring-emerald-500/20'
-                      : 'bg-gradient-to-r from-rose-700 to-red-700 hover:from-rose-600 hover:to-red-600 text-white border-rose-400 ring-4 ring-rose-500/20'
-                  }`}
-                  title={adminSettings?.showAllProducts !== false ? 'Click to hide all products on storefront (Not Show)' : 'Click to show all products on storefront (Show)'}
-                >
-                  <div className="flex items-center gap-2.5">
-                    {adminSettings?.showAllProducts !== false ? (
-                      <Eye className="w-4 h-4 text-white" />
-                    ) : (
-                      <EyeOff className="w-4 h-4 text-white" />
-                    )}
-                    <span className="text-sm font-black tracking-wide">
-                      All Products: {adminSettings?.showAllProducts !== false ? 'SHOW' : 'NOT SHOW'}
-                    </span>
-                  </div>
-                  <div className={`w-12 h-6 rounded-full p-0.5 transition-colors duration-200 flex items-center shrink-0 ${
-                    adminSettings?.showAllProducts !== false ? 'bg-white/30 justify-end' : 'bg-black/60 justify-start'
-                  }`}>
-                    <div className={`w-5 h-5 rounded-full shadow-md transform transition-transform duration-200 ${
-                      adminSettings?.showAllProducts !== false ? 'bg-white' : 'bg-rose-300'
-                    }`} />
-                  </div>
-                </button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* SELLING PRICE MASTER CONTROLLER — ALL PRODUCTS (Admin Only) */}
           <div className="bg-gradient-to-r from-slate-900 via-cyan-950 to-slate-900 rounded-3xl p-5 sm:p-6 text-white border border-cyan-700/50 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
@@ -3749,213 +3936,296 @@ export const AdminPanel: React.FC = () => {
           </div>
 
           {/* Product Cards Grid or Empty State */}
-          {products.length === 0 ? (
-            <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto space-y-4">
-              <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center">
-                <Trash2 className="w-8 h-8 text-rose-500" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="font-heading text-lg font-bold text-slate-900">All Products Deleted</h3>
-                <p className="text-xs text-slate-500">
-                  There are currently no products in the catalog or database. You can click &quot;Add Product&quot; to create a custom product.
-                </p>
-              </div>
-            </div>
-          ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {products.map(prod => (
-              <div
-                key={prod.id}
-                className="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-4 hover:shadow-md transition-shadow"
-              >
-                <div>
-                  <div className="h-40 bg-slate-50 rounded-2xl flex items-center justify-center p-3 mb-3 border border-slate-100 relative group">
-                    <img
-                      src={prod.image}
-                      alt={prod.name}
-                      className="max-h-full max-w-full object-contain"
-                    />
-                    {prod.badge && (
-                      <span className="absolute top-2 left-2 text-[9px] font-extrabold bg-amber-500 text-slate-950 px-2 py-0.5 rounded-md shadow-xs">
-                        {prod.badge}
-                      </span>
-                    )}
-                    {Array.isArray(prod.images) && prod.images.length > 1 && (
-                      <span className="absolute bottom-2 right-2 text-[9px] font-bold bg-slate-900/80 text-white px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1 shadow-xs">
-                        <Layers className="w-2.5 h-2.5 text-cyan-400" />
-                        <span>{prod.images.length} views</span>
-                      </span>
-                    )}
-                  </div>
+          {(() => {
+            const visibleTabProducts = isFactoryStaffMode
+              ? products.filter(p => isProductVisibleInStore(p, adminSettings))
+              : products.filter(p => {
+                  const shown = isProductVisibleInStore(p, adminSettings);
+                  if (productVisibilityFilter === 'shown') return shown;
+                  if (productVisibilityFilter === 'hidden') return !shown;
+                  return true;
+                });
 
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold bg-slate-900 text-white px-2.5 py-0.5 rounded-full">
-                      {prod.size}
-                    </span>
-                    {isFactoryStaffMode ? (
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          prod.inStock ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                        }`}
-                      >
-                        {prod.inStock ? '● In Stock' : '✕ Out of Stock'}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleToggleStock(prod)}
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
-                          prod.inStock 
-                            ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800' 
-                            : 'bg-rose-100 hover:bg-rose-200 text-rose-800'
-                        }`}
-                        title="Click to toggle stock status"
-                      >
-                        {prod.inStock ? '● In Stock' : '✕ Out of Stock'}
-                      </button>
-                    )}
+            if (products.length === 0) {
+              return (
+                <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center">
+                    <Trash2 className="w-8 h-8 text-rose-500" />
                   </div>
-
-                  <h3 className="font-heading text-sm font-bold text-slate-900 mt-2">
-                    {prod.name}
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">{prod.shortDesc}</p>
+                  <div className="space-y-1">
+                    <h3 className="font-heading text-lg font-bold text-slate-900">All Products Deleted</h3>
+                    <p className="text-xs text-slate-500">
+                      There are currently no products in the catalog or database. You can click &quot;Add Product&quot; to create a custom product.
+                    </p>
+                  </div>
                 </div>
+              );
+            }
 
-                <div className="pt-3 border-t border-slate-100 space-y-2.5">
-                  {/* Selling Price ON/OFF Option & Discount Badge (Admin Only) */}
-                  {(() => {
-                    const isSellingOn = prod.showSellingPrice !== false && !(prod.tags || []).includes('selling_price_off');
-                    const discountPercent = prod.mrp > prod.price ? Math.round(((prod.mrp - prod.price) / prod.mrp) * 100) : 0;
-                    return (
-                      <div className={`p-2.5 rounded-2xl border transition-all ${
-                        isSellingOn
-                          ? 'bg-gradient-to-br from-emerald-50/90 to-teal-50/50 border-emerald-200 shadow-2xs'
-                          : 'bg-slate-50 border-slate-200'
-                      }`}>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-black uppercase tracking-wider text-slate-700">
-                            SELLING PRICE (OFFER)
-                          </span>
-                          {isFactoryStaffMode ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
-                              {isSellingOn ? 'ON (Locked)' : 'OFF (Locked)'}
-                            </span>
-                          ) : (
+            if (visibleTabProducts.length === 0) {
+              return (
+                <div className="bg-white rounded-3xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto space-y-3">
+                  <EyeOff className="w-8 h-8 text-slate-400 mx-auto" />
+                  <h3 className="font-heading text-base font-bold text-slate-900">
+                    {isFactoryStaffMode ? 'No Visible Products' : `No Products in "${productVisibilityFilter === 'shown' ? 'SHOW' : 'NOT SHOW'}" Filter`}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {isFactoryStaffMode
+                      ? 'Products have been hidden from non-admin view by Owner Admin.'
+                      : 'Switch visibility filter tabs above to view all products.'}
+                  </p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {visibleTabProducts.map(prod => {
+                  const isShown = isProductVisibleInStore(prod, adminSettings);
+                  const isChecked = selectedProductIds.includes(prod.id);
+                  return (
+                    <div
+                      key={prod.id}
+                      className={`bg-white rounded-3xl border p-5 shadow-xs flex flex-col justify-between space-y-4 hover:shadow-md transition-all ${
+                        !isShown
+                          ? 'border-rose-300 bg-rose-50/20 opacity-85'
+                          : isChecked
+                          ? 'border-amber-500 ring-2 ring-amber-400/30'
+                          : 'border-slate-200'
+                      }`}
+                    >
+                      <div>
+                        <div className="h-40 bg-slate-50 rounded-2xl flex items-center justify-center p-3 mb-3 border border-slate-100 relative group">
+                          <img
+                            src={prod.image}
+                            alt={prod.name}
+                            className="max-h-full max-w-full object-contain"
+                          />
+                          {!isFactoryStaffMode && isAdminUnlocked && (
                             <button
                               type="button"
-                              onClick={() => handleToggleSellingPrice(prod)}
-                              className={`px-2.5 py-1 rounded-full text-[10px] font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
-                                isSellingOn
-                                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                  : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                              onClick={() => toggleSelectAdminProduct(prod.id)}
+                              className={`absolute top-2 left-2 w-6 h-6 rounded-lg border flex items-center justify-center transition-all cursor-pointer shadow-xs ${
+                                isChecked
+                                  ? 'bg-slate-900 border-slate-900 text-amber-400'
+                                  : 'bg-white/95 border-slate-300 text-slate-400 hover:border-slate-500'
                               }`}
-                              title={isSellingOn ? 'Click to turn Selling Price OFF (sell at MRP)' : 'Click to turn Selling Price ON (sell at discounted price)'}
+                              title={isChecked ? 'Deselect product' : 'Select product for batch SHOW / NOT SHOW'}
+                              aria-label={isChecked ? 'Deselect product' : 'Select product'}
                             >
-                              <span className={`w-1.5 h-1.5 rounded-full ${isSellingOn ? 'bg-white animate-pulse' : 'bg-slate-500'}`} />
-                              <span>{isSellingOn ? 'ON' : 'OFF'}</span>
+                              {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                             </button>
+                          )}
+                          {prod.badge && (
+                            <span className={`absolute top-2 ${!isFactoryStaffMode && isAdminUnlocked ? 'right-2' : 'left-2'} text-[9px] font-extrabold bg-amber-500 text-slate-950 px-2 py-0.5 rounded-md shadow-xs`}>
+                              {prod.badge}
+                            </span>
+                          )}
+                          {Array.isArray(prod.images) && prod.images.length > 1 && (
+                            <span className="absolute bottom-2 right-2 text-[9px] font-bold bg-slate-900/80 text-white px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1 shadow-xs">
+                              <Layers className="w-2.5 h-2.5 text-cyan-400" />
+                              <span>{prod.images.length} views</span>
+                            </span>
                           )}
                         </div>
 
-                        <div className="flex items-baseline justify-between mt-2 pt-2 border-t border-slate-200/70">
-                          <div>
-                            <span className="text-[10px] text-slate-400 block font-semibold">
-                              {isSellingOn ? 'ACTIVE SELLING RATE' : 'MRP STANDARD RATE'}
-                            </span>
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="font-heading text-lg font-black text-slate-900">
-                                ₹{isSellingOn ? prod.price : prod.mrp}/bottle
+                        <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                          <span className="text-xs font-bold bg-slate-900 text-white px-2.5 py-0.5 rounded-full">
+                            {prod.size}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {!isFactoryStaffMode && isAdminUnlocked && (
+                              <button
+                                type="button"
+                                id={`btn-toggle-visibility-${prod.id}`}
+                                onClick={() => toggleProductVisibility(prod.id)}
+                                className={`text-[10px] font-black px-2 py-0.5 rounded-full border transition-all flex items-center gap-1 cursor-pointer ${
+                                  isShown
+                                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-300'
+                                    : 'bg-rose-600 hover:bg-rose-700 text-white border-rose-700 shadow-xs'
+                                }`}
+                                title={isShown ? 'Admin Only: Product is SHOW on storefront. Click to set NOT SHOW.' : 'Admin Only: Product is NOT SHOW (Hidden from customers). Click to set SHOW.'}
+                              >
+                                {isShown ? (
+                                  <>
+                                    <Eye className="w-3 h-3" />
+                                    <span>SHOW</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <EyeOff className="w-3 h-3" />
+                                    <span>NOT SHOW</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            {isFactoryStaffMode ? (
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                  prod.inStock ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {prod.inStock ? '● In Stock' : '✕ Out of Stock'}
                               </span>
-                              {isSellingOn && prod.mrp > prod.price && (
-                                <span className="text-xs text-slate-400 line-through">₹{prod.mrp}</span>
-                              )}
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStock(prod)}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${
+                                  prod.inStock
+                                    ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-800'
+                                    : 'bg-rose-100 hover:bg-rose-200 text-rose-800'
+                                }`}
+                                title="Click to toggle stock status"
+                              >
+                                {prod.inStock ? '● In Stock' : '✕ Out of Stock'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <h3 className="font-heading text-sm font-bold text-slate-900 mt-2">
+                          {prod.name}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-1 line-clamp-2">{prod.shortDesc}</p>
+                      </div>
+
+                      <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                        {/* Selling Price ON/OFF Option & Discount Badge (Admin Only) */}
+                        {(() => {
+                          const isSellingOn = prod.showSellingPrice !== false && !(prod.tags || []).includes('selling_price_off');
+                          const discountPercent = prod.mrp > prod.price ? Math.round(((prod.mrp - prod.price) / prod.mrp) * 100) : 0;
+                          return (
+                            <div className={`p-2.5 rounded-2xl border transition-all ${
+                              isSellingOn
+                                ? 'bg-gradient-to-br from-emerald-50/90 to-teal-50/50 border-emerald-200 shadow-2xs'
+                                : 'bg-slate-50 border-slate-200'
+                            }`}>
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-slate-700">
+                                  SELLING PRICE (OFFER)
+                                </span>
+                                {isFactoryStaffMode ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">
+                                    {isSellingOn ? 'ON (Locked)' : 'OFF (Locked)'}
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleSellingPrice(prod)}
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs ${
+                                      isSellingOn
+                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                        : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                                    }`}
+                                    title={isSellingOn ? 'Click to turn Selling Price OFF (sell at MRP)' : 'Click to turn Selling Price ON (sell at discounted price)'}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${isSellingOn ? 'bg-white animate-pulse' : 'bg-slate-500'}`} />
+                                    <span>{isSellingOn ? 'ON' : 'OFF'}</span>
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="flex items-baseline justify-between mt-2 pt-2 border-t border-slate-200/70">
+                                <div>
+                                  <span className="text-[10px] text-slate-400 block font-semibold">
+                                    {isSellingOn ? 'ACTIVE SELLING RATE' : 'MRP STANDARD RATE'}
+                                  </span>
+                                  <div className="flex items-baseline gap-1.5">
+                                    <span className="font-heading text-lg font-black text-slate-900">
+                                      ₹{isSellingOn ? prod.price : prod.mrp}/bottle
+                                    </span>
+                                    {isSellingOn && prod.mrp > prod.price && (
+                                      <span className="text-xs text-slate-400 line-through">₹{prod.mrp}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                {isSellingOn && discountPercent > 0 ? (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                    {discountPercent}% OFF
+                                  </span>
+                                ) : !isSellingOn ? (
+                                  <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                    MRP Only
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* GST & Stock Meta Info */}
+                        <div className="flex items-center justify-between text-[10px] bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200/70 text-slate-600">
+                          <span>GST Rate: <strong className="text-slate-800">{prod.gstRate || 18}%</strong></span>
+                          <span>HSN: <strong className="text-slate-800">{prod.hsnCode || '2201'}</strong></span>
+                          <span>Stock: <strong className="text-emerald-700">{prod.stockCount ?? 500}</strong></span>
+                        </div>
+
+                        {/* Custom Design Pricing Spec (Admin Editable) */}
+                        <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200/80 text-[11px] space-y-1">
+                          <div className="flex items-center justify-between font-bold text-amber-900">
+                            <span>Custom Design Rate:</span>
+                            <span className="text-amber-800 font-extrabold">₹{prod.customDesignPrice || prod.price * 2}/bottle</span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-amber-700/90">
+                            <span>Custom Quantity:</span>
+                            <span className="font-bold text-black bg-white/80 px-1.5 py-0.2 rounded border border-amber-300">Min 600 to Unlimited</span>
+                          </div>
+                        </div>
+
+                        {/* Pack Selling Details */}
+                        <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/80 text-[11px] space-y-1">
+                          <div className="flex items-center justify-between font-bold text-slate-800">
+                            <span>Pack Formats:</span>
+                            <span className="text-cyan-700">{prod.casePackSize || 24} Pcs Pack</span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span>Case Rate:</span>
+                            <span className="font-semibold text-slate-700">
+                              ₹{prod.price * (prod.casePackSize || 24)} / case
+                            </span>
+                          </div>
+                        </div>
+
+                        {isFactoryStaffMode ? (
+                          <div className="pt-1">
+                            <div className="py-2 px-3 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs border border-slate-200 text-center flex items-center justify-center gap-1.5">
+                              <Lock className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Pricing & Specs: Admin Only</span>
                             </div>
                           </div>
-                          {isSellingOn && discountPercent > 0 ? (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                              {discountPercent}% OFF
-                            </span>
-                          ) : !isSellingOn ? (
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                              MRP Only
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })()}
+                        ) : (
+                          <div className="grid grid-cols-5 gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsNewProductModal(false);
+                                setEditingProduct({ ...prod, isVisible: isShown });
+                              }}
+                              className="col-span-4 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 font-bold text-xs border border-cyan-200 transition-colors cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Edit Specs</span>
+                            </button>
 
-                  {/* GST & Stock Meta Info */}
-                  <div className="flex items-center justify-between text-[10px] bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200/70 text-slate-600">
-                    <span>GST Rate: <strong className="text-slate-800">{prod.gstRate || 18}%</strong></span>
-                    <span>HSN: <strong className="text-slate-800">{prod.hsnCode || '2201'}</strong></span>
-                    <span>Stock: <strong className="text-emerald-700">{prod.stockCount ?? 500}</strong></span>
-                  </div>
-
-                  {/* Custom Design Pricing Spec (Admin Editable) */}
-                  <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200/80 text-[11px] space-y-1">
-                    <div className="flex items-center justify-between font-bold text-amber-900">
-                      <span>Custom Design Rate:</span>
-                      <span className="text-amber-800 font-extrabold">₹{prod.customDesignPrice || prod.price * 2}/bottle</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-amber-700/90">
-                      <span>Custom Quantity:</span>
-                      <span className="font-bold text-black bg-white/80 px-1.5 py-0.2 rounded border border-amber-300">Min 600 to Unlimited</span>
-                    </div>
-                  </div>
-
-                  {/* Pack Selling Details */}
-                  <div className="bg-slate-50 p-2 rounded-xl border border-slate-200/80 text-[11px] space-y-1">
-                    <div className="flex items-center justify-between font-bold text-slate-800">
-                      <span>Pack Formats:</span>
-                      <span className="text-cyan-700">{prod.casePackSize || 24} Pcs Pack</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-500">
-                      <span>Case Rate:</span>
-                      <span className="font-semibold text-slate-700">
-                        ₹{prod.price * (prod.casePackSize || 24)} / case
-                      </span>
-                    </div>
-                  </div>
-
-                  {isFactoryStaffMode ? (
-                    <div className="pt-1">
-                      <div className="py-2 px-3 rounded-xl bg-slate-100 text-slate-500 font-bold text-xs border border-slate-200 text-center flex items-center justify-center gap-1.5">
-                        <Lock className="w-3.5 h-3.5 text-slate-400" />
-                        <span>Pricing & Specs: Admin Only</span>
+                            <button
+                              type="button"
+                              id={`btn-delete-product-${prod.id}`}
+                              onClick={() => handleDeleteProduct(prod)}
+                              className="col-span-1 flex items-center justify-center py-2 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition-colors cursor-pointer"
+                              title="Delete Product from Store"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-5 gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsNewProductModal(false);
-                          setEditingProduct({ ...prod });
-                        }}
-                        className="col-span-4 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-cyan-50 hover:bg-cyan-100 text-cyan-800 font-bold text-xs border border-cyan-200 transition-colors cursor-pointer"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>Edit Specs</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        id={`btn-delete-product-${prod.id}`}
-                        onClick={() => handleDeleteProduct(prod)}
-                        className="col-span-1 flex items-center justify-center py-2 px-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition-colors cursor-pointer"
-                        title="Delete Product from Store"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-          )}
+            );
+          })()}
 
           {/* Edit Product Modal */}
           {editingProduct && (
@@ -4137,6 +4407,48 @@ export const AdminPanel: React.FC = () => {
                         onChange={e => setEditingProduct({ ...editingProduct, size: e.target.value })}
                         className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-cyan-500 font-semibold"
                       />
+                    </div>
+
+                    {/* Admin Per-Product Storefront Visibility SHOW / NOT SHOW Switch */}
+                    <div className="sm:col-span-2 bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-900">Storefront Product Visibility</span>
+                          <span className="text-[10px] font-black uppercase bg-slate-900 text-amber-300 px-2 py-0.5 rounded-full">
+                            Admin Only
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Control whether this product is visible (<strong className="text-emerald-700">SHOW</strong>) or hidden (<strong className="text-rose-700">NOT SHOW</strong>) for customers and factory staff.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        id="modal-toggle-product-visibility"
+                        onClick={() => {
+                          setEditingProduct({
+                            ...editingProduct,
+                            isVisible: editingProduct.isVisible === false ? true : false
+                          });
+                        }}
+                        className={`self-start sm:self-auto px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
+                          editingProduct.isVisible !== false
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                            : 'bg-rose-600 hover:bg-rose-700 text-white'
+                        }`}
+                      >
+                        {editingProduct.isVisible !== false ? (
+                          <>
+                            <Eye className="w-4 h-4" />
+                            <span>SHOW (Visible)</span>
+                          </>
+                        ) : (
+                          <>
+                            <EyeOff className="w-4 h-4" />
+                            <span>NOT SHOW (Hidden)</span>
+                          </>
+                        )}
+                      </button>
                     </div>
 
                     {/* Admin Selling Price ON/OFF Switch & Live Discount % */}
@@ -6007,52 +6319,71 @@ export const AdminPanel: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {/* Storefront All Products Show / Not Show Toggle (Admin Only) */}
+                {/* Selective Per-Product Storefront Visibility Checklist (Owner Admin Only) */}
                 {!isFactoryStaffMode && isAdminUnlocked && (
-                  <div className={`sm:col-span-2 p-4 rounded-xl border transition-all duration-200 shadow-2xs flex items-center justify-between gap-4 ${
-                    adminSettings?.showAllProducts !== false
-                      ? 'bg-white border-emerald-300 ring-1 ring-emerald-500/20'
-                      : 'bg-rose-50 border-rose-300 ring-1 ring-rose-500/20'
-                  }`}>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900 block">
-                          Storefront All Products Visibility (Show / Not Show)
-                        </span>
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${
-                          adminSettings?.showAllProducts !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {adminSettings?.showAllProducts !== false ? 'SHOW (VISIBLE)' : 'NOT SHOW (HIDDEN)'}
-                        </span>
-                        <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-900 text-white">
-                          Admin Only
+                  <div className="sm:col-span-2 p-4 rounded-xl border border-amber-300 bg-white space-y-3 shadow-2xs">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900">
+                            Selective Storefront Product Visibility (Show / Not Show)
+                          </span>
+                          <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-md bg-slate-900 text-white">
+                            Admin Only
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-600 block mt-0.5">
+                          Choose individually which bottled products appear on the customer storefront and staff dashboard.
                         </span>
                       </div>
-                      <span className="text-[11px] text-slate-600 block mt-0.5">
-                        Show or hide all bottled products across the customer storefront and staff view with one click.
+                      <span className="text-xs font-black text-slate-700 tabular-nums">
+                        {products.filter(p => isProductVisibleInStore(p, adminSettings)).length}/{products.length} SHOW
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      id="settings-all-products-visibility-toggle-btn"
-                      onClick={async () => {
-                        const next = adminSettings?.showAllProducts === false;
-                        setSettingsForm(prev => ({ ...prev, showAllProducts: next }));
-                        await toggleAllProductsVisibility(next);
-                      }}
-                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer shrink-0 border ${
-                        adminSettings?.showAllProducts !== false
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500'
-                          : 'bg-rose-600 hover:bg-rose-700 text-white border-rose-500'
-                      }`}
-                    >
-                      {adminSettings?.showAllProducts !== false ? (
-                        <Eye className="w-3.5 h-3.5" />
-                      ) : (
-                        <EyeOff className="w-3.5 h-3.5" />
-                      )}
-                      <span>{adminSettings?.showAllProducts !== false ? 'SHOW' : 'NOT SHOW'}</span>
-                    </button>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-1">
+                      {products.map(prod => {
+                        const isShown = isProductVisibleInStore(prod, adminSettings);
+                        return (
+                          <div
+                            key={prod.id}
+                            className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                              isShown ? 'border-slate-200 bg-slate-50/70' : 'border-rose-200 bg-rose-50/60'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <span className="text-xs font-bold text-slate-900 block truncate">
+                                {prod.name}
+                              </span>
+                              <span className="text-[10px] text-slate-500">
+                                {prod.size} • ₹{prod.price}/bottle
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              id={`settings-toggle-visibility-${prod.id}`}
+                              onClick={() => toggleProductVisibility(prod.id)}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-black transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                isShown
+                                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                                  : 'bg-rose-600 hover:bg-rose-700 text-white shadow-2xs'
+                              }`}
+                            >
+                              {isShown ? (
+                                <>
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>SHOW</span>
+                                </>
+                              ) : (
+                                <>
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                  <span>NOT SHOW</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
@@ -8780,6 +9111,22 @@ export const AdminPanel: React.FC = () => {
           onClose={() => setSelectedChallanOrder(null)}
         />
       )}
+
+      {/* ORDER DISPATCH QR CODE & VERIFICATION MODAL */}
+      {selectedQrOrder && (
+        <OrderDispatchQrModal
+          order={selectedQrOrder}
+          adminSettings={adminSettings}
+          isFactoryStaffMode={isFactoryStaffMode}
+          onClose={() => setSelectedQrOrder(null)}
+        />
+      )}
+
+      {/* QUICK SCAN-TO-DELIVER OVERLAY MODAL */}
+      <QuickDispatchScannerModal
+        isOpen={isQuickDeliverScannerOpen}
+        onClose={() => setIsQuickDeliverScannerOpen(false)}
+      />
 
       {/* DRIVER NAVIGATION & DISPATCH MODAL (GOOGLE MAPS) */}
       {selectedNavOrder && (

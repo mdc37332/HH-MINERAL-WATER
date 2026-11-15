@@ -59,28 +59,34 @@ export const OrderTracking: React.FC = () => {
 
   // List of orders to display in the sidebar
   const sourceOrders = currentUser ? myOrders : orders;
-  const displayedOrders = sourceOrders.filter(ord => {
-    if (!searchQuery.trim()) return true;
+  const displayedOrders = React.useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return (
+    if (!q) return sourceOrders;
+    return sourceOrders.filter(ord => (
       ord.id.toLowerCase().includes(q) ||
       (ord.customer?.name || '').toLowerCase().includes(q) ||
       (ord.customer?.phone || '').includes(q) ||
       (ord.invoiceNumber || '').toLowerCase().includes(q)
-    );
-  });
+    ));
+  }, [sourceOrders, searchQuery]);
+
+  // Keep selectedOrder synced with live order updates
+  const liveSelectedOrder = React.useMemo(() => {
+    if (!selectedOrder) return null;
+    return sourceOrders.find(o => o.id === selectedOrder.id) || orders.find(o => o.id === selectedOrder.id) || selectedOrder;
+  }, [selectedOrder, sourceOrders, orders]);
 
   // Auto select if trackOrderId set or default to first
   useEffect(() => {
     if (trackOrderId && orders.length > 0) {
       const match = orders.find(o => o.id.toLowerCase() === trackOrderId.toLowerCase());
-      if (match) {
+      if (match && selectedOrder?.id !== match.id) {
         setSelectedOrder(match);
       }
     } else if (displayedOrders.length > 0 && !selectedOrder) {
       setSelectedOrder(displayedOrders[0]);
     }
-  }, [trackOrderId, orders, displayedOrders]);
+  }, [trackOrderId, orders, displayedOrders, selectedOrder]);
 
   const getStatusIndex = (current: OrderStatus) => {
     if (current === 'Cancelled' || current === 'Failed') return -1;
@@ -88,13 +94,13 @@ export const OrderTracking: React.FC = () => {
   };
 
   const handlePrintReceipt = () => {
-    if (selectedOrder) {
-      openInvoiceForOrder(selectedOrder);
+    if (liveSelectedOrder) {
+      openInvoiceForOrder(liveSelectedOrder);
     }
   };
 
   const handleCopyOrderId = (id: string) => {
-    navigator.clipboard.writeText(id);
+    navigator.clipboard?.writeText?.(id);
     setCopiedId(true);
     showToast('Copied', `Order ID ${id} copied to clipboard.`, 'info');
     setTimeout(() => setCopiedId(false), 2000);
@@ -247,23 +253,23 @@ export const OrderTracking: React.FC = () => {
 
         {/* Selected Order Detailed Tracking (8 cols) */}
         <div className="lg:col-span-8 space-y-6">
-          {selectedOrder ? (
+          {liveSelectedOrder ? (
             <div className="bg-[#121212] rounded-3xl border border-[#262626] shadow-xl overflow-hidden p-6 sm:p-8 space-y-8">
               {/* Order Top Bar */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#262626]">
                 <div>
                   <div className="flex items-center gap-3">
                     <span className="font-mono font-black text-xl text-white flex items-center gap-2">
-                      <span>{selectedOrder.id}</span>
+                      <span>{liveSelectedOrder.id}</span>
                       <button
-                        onClick={() => handleCopyOrderId(selectedOrder.id)}
+                        onClick={() => handleCopyOrderId(liveSelectedOrder.id)}
                         className="text-neutral-400 hover:text-white cursor-pointer"
                         title="Copy Order ID"
                       >
                         {copiedId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                       </button>
                     </span>
-                    {selectedOrder.isCustomOrder && (
+                    {liveSelectedOrder.isCustomOrder && (
                       <span className="text-xs font-black bg-gradient-to-r from-[#C5A059] to-[#D4AF37] text-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-2xs">
                         <Sparkles className="w-3 h-3 text-black" />
                         CUSTOM DESIGN
@@ -271,15 +277,15 @@ export const OrderTracking: React.FC = () => {
                     )}
                   </div>
                   <p className="text-xs text-neutral-400 mt-1">
-                    Placed on {new Date(selectedOrder.createdAt).toLocaleString()} • Payment: {selectedOrder.paymentMethod}
+                    Placed on {new Date(liveSelectedOrder.createdAt).toLocaleString()} • Payment: {liveSelectedOrder.paymentMethod}
                   </p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    id={`btn-track-print-invoice-${selectedOrder.id}`}
-                    onClick={() => openInvoiceForOrder(selectedOrder, true)}
+                    id={`btn-track-print-invoice-${liveSelectedOrder.id}`}
+                    onClick={() => openInvoiceForOrder(liveSelectedOrder, true)}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#C5A059] to-[#D4AF37] hover:brightness-110 text-black text-xs font-black shadow-xs transition-colors cursor-pointer"
                     title="Print Official GST Tax Invoice"
                   >
@@ -289,8 +295,8 @@ export const OrderTracking: React.FC = () => {
 
                   <button
                     type="button"
-                    id={`btn-track-view-invoice-${selectedOrder.id}`}
-                    onClick={() => openInvoiceForOrder(selectedOrder, false)}
+                    id={`btn-track-view-invoice-${liveSelectedOrder.id}`}
+                    onClick={() => openInvoiceForOrder(liveSelectedOrder, false)}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1e1e1e] hover:bg-[#282828] border border-[#383838] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
                   >
                     <Receipt className="w-3.5 h-3.5 text-[#C5A059]" />
@@ -305,19 +311,19 @@ export const OrderTracking: React.FC = () => {
                   Order Progression Status
                 </h4>
 
-                {selectedOrder.status === 'Cancelled' || selectedOrder.status === 'Failed' ? (
+                {liveSelectedOrder.status === 'Cancelled' || liveSelectedOrder.status === 'Failed' ? (
                   <div className="bg-rose-950/40 border border-rose-800/50 rounded-2xl p-4 flex items-center gap-3 text-rose-300">
                     <AlertCircle className="w-6 h-6 text-rose-400 shrink-0" />
                     <div>
-                      <h5 className="font-bold text-sm">Order Status: {selectedOrder.status}</h5>
-                      <p className="text-xs mt-0.5 text-rose-300/80">This order was marked as {selectedOrder.status.toLowerCase()}. Please contact HH Support at 8017341130 for assistance.</p>
+                      <h5 className="font-bold text-sm">Order Status: {liveSelectedOrder.status}</h5>
+                      <p className="text-xs mt-0.5 text-rose-300/80">This order was marked as {liveSelectedOrder.status.toLowerCase()}. Please contact HH Support at 8017341130 for assistance.</p>
                     </div>
                   </div>
                 ) : (
                   <div className="relative">
                     <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
                       {statusPipeline.map((step, idx) => {
-                        const currentIdx = getStatusIndex(selectedOrder.status);
+                        const currentIdx = getStatusIndex(liveSelectedOrder.status);
                         const isPast = idx <= currentIdx;
                         const isCurrent = idx === currentIdx;
 
@@ -364,7 +370,7 @@ export const OrderTracking: React.FC = () => {
                 </h4>
 
                 <div className="space-y-3">
-                  {selectedOrder.items.map((item, idx) => (
+                  {liveSelectedOrder.items.map((item, idx) => (
                     <div
                       key={idx}
                       className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4 ${
@@ -421,7 +427,7 @@ export const OrderTracking: React.FC = () => {
               </div>
 
               {/* Uploaded Original Images & Video Files Section (If custom) */}
-              {(selectedOrder.hasOriginalImage || selectedOrder.hasUploadedVideo || selectedOrder.items.some(i => i.customDesignDetails?.uploadedImages && i.customDesignDetails.uploadedImages.length > 0)) && (
+              {(liveSelectedOrder.hasOriginalImage || liveSelectedOrder.hasUploadedVideo || liveSelectedOrder.items.some(i => i.customDesignDetails?.uploadedImages && i.customDesignDetails.uploadedImages.length > 0)) && (
                 <div className="bg-[#141414] text-white rounded-2xl p-5 border border-[#282828] space-y-3">
                   <div className="flex items-center justify-between">
                     <h5 className="text-xs font-bold uppercase tracking-wider text-[#DFC283] flex items-center gap-1.5">
@@ -432,7 +438,7 @@ export const OrderTracking: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {selectedOrder.items.flatMap(item =>
+                    {liveSelectedOrder.items.flatMap(item =>
                       (item.customDesignDetails?.uploadedImages || []).map((media, i) => {
                         const isVideo = media.mediaType === 'video' || media.type?.startsWith('video/');
                         return (
@@ -523,29 +529,29 @@ export const OrderTracking: React.FC = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t border-[#262626]">
                 <div className="space-y-2 text-xs">
                   <h5 className="font-bold text-[#DFC283] uppercase tracking-wider">Delivery Destination</h5>
-                  <p className="text-white font-semibold">{selectedOrder.customer.name}</p>
-                  <p className="text-neutral-300">{selectedOrder.customer.address}</p>
-                  {selectedOrder.customer.landmark && (
-                    <p className="text-neutral-400">Landmark: {selectedOrder.customer.landmark}</p>
+                  <p className="text-white font-semibold">{liveSelectedOrder.customer.name}</p>
+                  <p className="text-neutral-300">{liveSelectedOrder.customer.address}</p>
+                  {liveSelectedOrder.customer.landmark && (
+                    <p className="text-neutral-400">Landmark: {liveSelectedOrder.customer.landmark}</p>
                   )}
                   <p className="text-neutral-300">
-                    {selectedOrder.customer.city} - {selectedOrder.customer.pincode}
+                    {liveSelectedOrder.customer.city} - {liveSelectedOrder.customer.pincode}
                   </p>
-                  <p className="text-[#DFC283] font-bold mt-1">Phone: {selectedOrder.customer.phone}</p>
-                  {selectedOrder.customer.email && (
-                    <p className="text-neutral-400">Email: {selectedOrder.customer.email}</p>
+                  <p className="text-[#DFC283] font-bold mt-1">Phone: {liveSelectedOrder.customer.phone}</p>
+                  {liveSelectedOrder.customer.email && (
+                    <p className="text-neutral-400">Email: {liveSelectedOrder.customer.email}</p>
                   )}
                 </div>
 
                 <div className="bg-[#161616] rounded-2xl p-4 border border-[#282828] space-y-2 text-xs">
                   <div className="flex justify-between text-neutral-400">
                     <span>Items Subtotal:</span>
-                    <span className="font-semibold text-neutral-200">₹{selectedOrder.subtotal}</span>
+                    <span className="font-semibold text-neutral-200">₹{liveSelectedOrder.subtotal}</span>
                   </div>
                   <div className="flex justify-between text-neutral-400">
                     <span>Delivery Fee:</span>
                     <span className="font-semibold text-neutral-200">
-                      {selectedOrder.deliveryCharge === 0 ? 'FREE' : `₹${selectedOrder.deliveryCharge}`}
+                      {liveSelectedOrder.deliveryCharge === 0 ? 'FREE' : `₹${liveSelectedOrder.deliveryCharge}`}
                     </span>
                   </div>
                   <div className="flex justify-between pt-2 border-t border-[#262626] font-bold text-white text-sm">
@@ -554,17 +560,17 @@ export const OrderTracking: React.FC = () => {
                       <span className="block text-[10px] text-neutral-400 font-normal">Incl. 18% GST</span>
                     </div>
                     <span className="font-heading text-lg font-black gold-gradient-text">
-                      ₹{selectedOrder.totalAmount}
+                      ₹{liveSelectedOrder.totalAmount}
                     </span>
                   </div>
                   <div className="text-[11px] text-emerald-400 font-semibold pt-1">
-                    Payment: {selectedOrder.paymentStatus} ({selectedOrder.paymentMethod})
+                    Payment: {liveSelectedOrder.paymentStatus} ({liveSelectedOrder.paymentMethod})
                   </div>
                 </div>
               </div>
 
               {/* Google Maps Route to Customer Location */}
-              <OrderDeliveryRouteMap order={selectedOrder} />
+              <OrderDeliveryRouteMap order={liveSelectedOrder} />
             </div>
           ) : (
             <div className="bg-[#121212] rounded-3xl border border-[#262626] p-12 text-center text-neutral-500 space-y-3">

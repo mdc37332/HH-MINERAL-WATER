@@ -694,7 +694,9 @@ export const CustomerProfileSection: React.FC = () => {
                         <span className="font-mono font-bold text-xs text-white">{order.id}</span>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
                           order.status === 'Delivered' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/50' :
-                          order.status === 'Dispatched' ? 'bg-purple-950 text-purple-300 border border-purple-800/50' :
+                          order.status === 'Out for Delivery' ? 'bg-purple-950 text-purple-300 border border-purple-800/50' :
+                          order.status === 'Cancelled' || order.status === 'Failed' ? 'bg-rose-950 text-rose-300 border border-rose-800/50' :
+                          order.status === 'Ready' || order.status === 'Confirmed' || order.status === 'Processing' ? 'bg-sky-950 text-sky-300 border border-sky-800/50' :
                           'bg-amber-950 text-amber-300 border border-amber-800/50'
                         }`}>
                           {order.status}

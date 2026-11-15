@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import {
   Product,
   CartItem,
@@ -88,11 +88,26 @@ import {
 } from '../lib/whatsapp';
 import { INITIAL_PRODUCTS, DEFAULT_ADMIN_SETTINGS, DEFAULT_RAW_MATERIALS_INVENTORY } from '../data/initialProducts';
 import { DEFAULT_BOTTLE_IMAGE, isDeadOrDoctorImage } from '../data/bottlePresets';
+import {
+  computeDeterministicDispatchCode,
+  createRotatedDispatchCode,
+  getOrderDispatchCode,
+  verifyOrderAgainstScan,
+} from '../lib/dispatchQr';
 import { generateGstInvoice } from '../lib/invoiceGenerator';
 import { auditInventoryStockLevels, formatLowStockWhatsAppMessage, getLowStockWhatsAppDirectUrl } from '../lib/inventoryMonitor';
 import confetti from 'canvas-confetti';
 import { safeStorage, cleanStorageBloat } from '../lib/storage';
 import { soundAlert } from '../lib/soundAlert';
+
+// Visibility utility (Admin-controlled per-product SHOW / NOT SHOW)
+export const isProductVisibleInStore = (product: Product, settings?: AdminSettings): boolean => {
+  if (!product) return false;
+  if (product.isVisible === false) return false;
+  if (Array.isArray(product.tags) && product.tags.includes('hidden_not_show')) return false;
+  if (Array.isArray(settings?.hiddenProductIds) && settings.hiddenProductIds.includes(product.id)) return false;
+  return true;
+};
 
 // Pricing & Discount calculation utilities (Selling Price ON/OFF and % OFF)
 export const isProductSellingPriceActive = (product: Product, settings?: AdminSettings): boolean => {
@@ -231,6 +246,15 @@ interface StoreContextType {
   setRecentCreatedOrder: (o: Order | null) => void;
   trackOrderId: string;
   setTrackOrderId: (id: string) => void;
+  pendingDispatchScan: string;
+  setPendingDispatchScan: (scan: string) => void;
+  generateOrderDispatchQr: (orderId: string, regenerate?: boolean) => Promise<Order | null>;
+  verifyOrderAtDispatchCounter: (
+    orderIdOrScan: string,
+    scannedCode?: string,
+    options?: { verifiedBy?: string; nextStatus?: OrderStatus }
+  ) => Promise<{ success: boolean; order?: Order; message: string }>;
+  clearOrderDispatchVerification: (orderId: string) => Promise<void>;
 
   // GST Invoices
   invoices: Invoice[];
@@ -252,7 +276,8 @@ interface StoreContextType {
   // Admin & Status Actions
   addProduct: (product: Product) => Promise<void>;
   updateProduct: (product: Product) => Promise<void>;
-  toggleAllProductsVisibility: (show: boolean) => Promise<void>;
+  toggleProductVisibility: (productId: string, show?: boolean) => Promise<void>;
+  setSelectedProductsVisibility: (productIds: string[], show: boolean) => Promise<void>;
   toggleAllProductsSellingPrice: (enable: boolean) => Promise<void>;
   deleteProduct: (productId: string) => Promise<void>;
   deleteAllProducts: () => Promise<void>;
@@ -310,6 +335,66 @@ const ORDERS_WIPED_BEFORE_KEY = 'hh_orders_wiped_before_v1';
 const DELETED_INVOICE_IDS_KEY = 'hh_deleted_invoice_ids_v1';
 const INVOICES_WIPED_BEFORE_KEY = 'hh_invoices_wiped_before_v1';
 const DELETED_RAW_MATERIAL_IDS_KEY = 'hh_deleted_raw_material_ids_v1';
+const DISPATCH_QR_RECORDS_KEY = 'hh_dispatch_qr_records_v1';
+
+interface StoredDispatchQrMeta {
+  dispatchQrCode?: string;
+  dispatchQrGeneratedAt?: string;
+  dispatchVerifiedAt?: string;
+  dispatchVerifiedBy?: string;
+}
+
+function getDispatchQrRecords(): Record<string, StoredDispatchQrMeta> {
+  try {
+    const raw = safeStorage.getItem(DISPATCH_QR_RECORDS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDispatchQrRecord(orderId: string, meta: StoredDispatchQrMeta) {
+  try {
+    const current = getDispatchQrRecords();
+    current[orderId] = { ...(current[orderId] || {}), ...meta };
+    safeStorage.setItem(DISPATCH_QR_RECORDS_KEY, JSON.stringify(current));
+  } catch {}
+}
+
+function removeDispatchQrRecords(orderIds: string[]) {
+  if (!orderIds.length) return;
+  try {
+    const current = getDispatchQrRecords();
+    let changed = false;
+    for (const id of orderIds) {
+      if (id in current) {
+        delete current[id];
+        changed = true;
+      }
+    }
+    if (changed) {
+      safeStorage.setItem(DISPATCH_QR_RECORDS_KEY, JSON.stringify(current));
+    }
+  } catch {}
+}
+
+function hydrateOrderWithDispatchQr(order: Order): Order {
+  const records = getDispatchQrRecords();
+  const cached = records[order.id];
+  const merged: Order = {
+    ...order,
+    dispatchQrCode: order.dispatchQrCode || cached?.dispatchQrCode,
+    dispatchQrGeneratedAt: order.dispatchQrGeneratedAt || cached?.dispatchQrGeneratedAt,
+    dispatchVerifiedAt: order.dispatchVerifiedAt || cached?.dispatchVerifiedAt,
+    dispatchVerifiedBy: order.dispatchVerifiedBy || cached?.dispatchVerifiedBy,
+  };
+  if (!merged.dispatchQrCode) {
+    merged.dispatchQrCode = computeDeterministicDispatchCode(merged);
+  }
+  return merged;
+}
 
 function getStoredIdSet(key: string): Set<string> {
   try {
@@ -487,9 +572,34 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {}
     return DEFAULT_ADMIN_SETTINGS;
   });
+  const adminSettingsRef = useRef<AdminSettings>(adminSettings);
+  useEffect(() => {
+    adminSettingsRef.current = adminSettings;
+  }, [adminSettings]);
   const [recentCreatedOrder, setRecentCreatedOrder] = useState<Order | null>(null);
   const [trackOrderId, setTrackOrderId] = useState<string>('');
+  const [pendingDispatchScan, setPendingDispatchScan] = useState<string>('');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  // Deep-link support for scanned Dispatch QR codes (?dispatchVerify=HH-ORD-...&code=HH-DSP-...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const verifyOrderId = params.get('dispatchVerify');
+      const verifyCode = params.get('code');
+      if (verifyOrderId) {
+        const payload = verifyCode ? `${window.location.origin}/?dispatchVerify=${encodeURIComponent(verifyOrderId)}&code=${encodeURIComponent(verifyCode)}` : verifyOrderId;
+        if (isAdminUnlocked || isFactoryStaffUnlocked) {
+          setPendingDispatchScan(payload);
+          setCurrentSection('admin');
+        } else {
+          setTrackOrderId(verifyOrderId);
+          setCurrentSection('orders');
+        }
+      }
+    } catch {}
+  }, []);
 
   // Toast Helpers - defined early and memoized
   const removeToast = useCallback((id: string) => {
@@ -663,17 +773,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (isValid) {
         setIsAdminUnlocked(true);
       } else {
-        // Only clear if definitively invalid and not master token
-        if (adminToken !== '170707' && !adminToken.startsWith('hh_adm_')) {
-          try {
-            safeStorage.removeItem('hh_admin_session_token_v2');
-            if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('hh_admin_session_token');
-          } catch {}
-          setAdminToken(null);
-          setIsAdminUnlocked(false);
-        } else {
-          setIsAdminUnlocked(true);
-        }
+        try {
+          safeStorage.removeItem('hh_admin_session_token_v2');
+          if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('hh_admin_session_token');
+        } catch {}
+        setAdminToken(null);
+        setIsAdminUnlocked(false);
       }
     }
     verifyExistingAdminSession();
@@ -713,7 +818,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       showToast('Authentication Failed', 'Invalid Master PIN. Access denied.', 'error');
       return { success: false, error: 'Invalid Master PIN. Access denied.' };
     }
-    const token = `hh_adm_${code}_master_session`;
+    const token = `hh_adm_${code}_${Date.now()}_master_session`;
     setAdminToken(token);
     setAdminEmail('mdhussain170707@gmail.com');
     setIsAdminUnlocked(true);
@@ -956,10 +1061,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Auto synchronize cart items with real-time product price & stock updates
       setCart(currentCart => {
         let changed = false;
+        const currentSettings = adminSettingsRef.current;
         const updatedCart = currentCart.map(item => {
           const matchingProduct = filteredLatest.find(p => p.id === item.productId);
           if (matchingProduct) {
-            const effectiveStdPrice = getProductEffectivePrice(matchingProduct, adminSettings);
+            const effectiveStdPrice = getProductEffectivePrice(matchingProduct, currentSettings);
             const expectedUnitPrice = item.isCustomDesign
               ? (matchingProduct.customDesignPrice || effectiveStdPrice * 2)
               : effectiveStdPrice;
@@ -980,11 +1086,42 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => unsub();
   }, []);
 
+  // Re-sync cart item prices whenever products or admin pricing/visibility settings change
+  useEffect(() => {
+    if (!products || products.length === 0) return;
+    setCart(currentCart => {
+      if (currentCart.length === 0) return currentCart;
+      let changed = false;
+      const updatedCart = currentCart.map(item => {
+        const matchingProduct = products.find(p => p.id === item.productId);
+        if (!matchingProduct) return item;
+        const effectiveStdPrice = getProductEffectivePrice(matchingProduct, adminSettings);
+        const expectedUnitPrice = item.isCustomDesign
+          ? (matchingProduct.customDesignPrice || effectiveStdPrice * 2)
+          : effectiveStdPrice;
+        if (
+          item.unitPrice !== expectedUnitPrice ||
+          item.product.price !== matchingProduct.price ||
+          item.product.inStock !== matchingProduct.inStock
+        ) {
+          changed = true;
+          return {
+            ...item,
+            product: matchingProduct,
+            unitPrice: expectedUnitPrice,
+          };
+        }
+        return item;
+      });
+      return changed ? updatedCart : currentCart;
+    });
+  }, [products, adminSettings]);
+
   // Subscribe to real-time orders (both Cloud SQL and Firestore)
   useEffect(() => {
     fetchOrdersApi().then(apiOrders => {
       if (Array.isArray(apiOrders)) {
-        const valid = apiOrders.filter(o => !isOrderDeleted(o));
+        const valid = apiOrders.filter(o => !isOrderDeleted(o)).map(hydrateOrderWithDispatchQr);
         if (valid.length > 0) {
           setOrders(valid);
         }
@@ -995,7 +1132,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const unsub = subscribeToOrders(latestOrders => {
       if (Array.isArray(latestOrders)) {
-        setOrders(latestOrders.filter(o => !isOrderDeleted(o)));
+        setOrders(latestOrders.filter(o => !isOrderDeleted(o)).map(hydrateOrderWithDispatchQr));
       }
     });
     return () => unsub();
@@ -1228,6 +1365,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Add to cart
   const addToCart = (product: Product, quantity: number, customDetails?: CustomDesignDetails) => {
+    const isOwnerAdminOnly = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
+    const liveProduct = products.find(p => p.id === product.id) || product;
+    if (!isOwnerAdminOnly && !isProductVisibleInStore(liveProduct, adminSettings)) {
+      showToast('Product Unavailable', `${liveProduct.name} is currently hidden from the store.`, 'warning');
+      return;
+    }
+
     const isCustom = !!customDetails;
     // For custom design orders: minimum 600 pieces and unit price is base custom rate (or admin custom price override) + enabled features
     const effectiveQty = isCustom ? Math.max(600, quantity) : quantity;
@@ -1613,6 +1757,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const nextSeq = maxExistingSeq + 1;
     const generatedInvoice = generateGstInvoice(newOrder, adminSettings, nextSeq);
     newOrder.invoiceNumber = generatedInvoice.invoiceNumber;
+    newOrder.dispatchQrCode = computeDeterministicDispatchCode(newOrder);
+    newOrder.dispatchQrGeneratedAt = now;
+    saveDispatchQrRecord(newOrder.id, {
+      dispatchQrCode: newOrder.dispatchQrCode,
+      dispatchQrGeneratedAt: newOrder.dispatchQrGeneratedAt,
+    });
 
     // Format WhatsApp messages
     const formattedAdminMessage = formatOrderWhatsAppMessage(newOrder);
@@ -1857,6 +2007,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     generatedInvoice.orderSource = 'offline_counter';
     newOrder.invoiceNumber = generatedInvoice.invoiceNumber;
     newOrder.invoiceId = generatedInvoice.id;
+    newOrder.dispatchQrCode = computeDeterministicDispatchCode(newOrder);
+    newOrder.dispatchQrGeneratedAt = now;
+    saveDispatchQrRecord(newOrder.id, {
+      dispatchQrCode: newOrder.dispatchQrCode,
+      dispatchQrGeneratedAt: newOrder.dispatchQrGeneratedAt,
+    });
 
     // Save to Firestore and Cloud SQL API
     const [dbSaveRes, invSaveRes, apiOrderRes] = await Promise.allSettled([
@@ -2062,15 +2218,46 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const adminIdentity = adminEmail || 'mdhussain170707@gmail.com';
     // Un-tombstone if admin explicitly recreates/updates a product ID
     removeStoredId(DELETED_PRODUCT_IDS_KEY, product.id);
+
+    const nextVisible = product.isVisible !== false && !(Array.isArray(product.tags) && product.tags.includes('hidden_not_show'));
+    const rawTags = Array.isArray(product.tags) ? [...product.tags] : [];
+    const normalizedTags = nextVisible
+      ? rawTags.filter(t => t !== 'hidden_not_show')
+      : (rawTags.includes('hidden_not_show') ? rawTags : [...rawTags, 'hidden_not_show']);
+
+    const normalizedProduct: Product = {
+      ...product,
+      isVisible: nextVisible,
+      tags: normalizedTags,
+    };
+
+    const prevHidden = Array.isArray(adminSettings.hiddenProductIds) ? adminSettings.hiddenProductIds : [];
+    const wasInHidden = prevHidden.includes(normalizedProduct.id);
+    const shouldBeInHidden = !nextVisible;
+    let nextSettingsToSync: AdminSettings | null = null;
+    if (wasInHidden !== shouldBeInHidden) {
+      const nextHiddenIds = shouldBeInHidden
+        ? [...prevHidden, normalizedProduct.id]
+        : prevHidden.filter(id => id !== normalizedProduct.id);
+      nextSettingsToSync = {
+        ...adminSettings,
+        hiddenProductIds: nextHiddenIds,
+      };
+      setAdminSettings(nextSettingsToSync);
+      try {
+        safeStorage.setItem('hh_mineral_admin_settings_v1', JSON.stringify(nextSettingsToSync));
+      } catch {}
+    }
+
     // 1. Optimistic immediate local state update
     setProducts(prev => {
-      const idx = prev.findIndex(p => p.id === product.id);
+      const idx = prev.findIndex(p => p.id === normalizedProduct.id);
       let nextList: Product[];
       if (idx >= 0) {
         nextList = [...prev];
-        nextList[idx] = product;
+        nextList[idx] = normalizedProduct;
       } else {
-        nextList = [product, ...prev];
+        nextList = [normalizedProduct, ...prev];
       }
       try {
         safeStorage.setItem('hh_mineral_products_v1', JSON.stringify(nextList));
@@ -2081,14 +2268,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // 2. Persist to Firestore (real-time sync across all devices) and Cloud SQL backend in parallel
     try {
-      const syncPromise = Promise.allSettled([
-        saveProductToDb(product, adminIdentity, 'Authorized Admin').catch(e => console.warn('Firestore product sync warning:', e)),
-        saveProductApi(product, adminToken || '170707').then(saved => {
+      const tasks: Promise<any>[] = [
+        saveProductToDb(normalizedProduct, adminIdentity, 'Authorized Admin').catch(e => console.warn('Firestore product sync warning:', e)),
+        saveProductApi(normalizedProduct, adminToken || '170707').then(saved => {
           if (saved) {
             setProducts(prev => {
               const idx = prev.findIndex(p => p.id === saved.id);
               let nextList: Product[];
-              const mergedProduct = { ...product, ...saved, videoUrl: product.videoUrl || saved.videoUrl };
+              const mergedProduct = { ...normalizedProduct, ...saved, videoUrl: normalizedProduct.videoUrl || saved.videoUrl };
               if (idx >= 0) {
                 nextList = [...prev];
                 nextList[idx] = mergedProduct;
@@ -2102,13 +2289,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             });
           }
         }).catch(e => console.warn('Backend API save warning:', e))
-      ]);
+      ];
+      if (nextSettingsToSync) {
+        saveAdminSettings(nextSettingsToSync);
+        tasks.push(
+          saveSettingsApi(nextSettingsToSync, adminToken).catch(e => console.warn('Cloud SQL settings sync error:', e))
+        );
+      }
+      const syncPromise = Promise.allSettled(tasks);
       // Give sync up to 2.5s before concluding so UI remains snappy
       await Promise.race([syncPromise, new Promise(resolve => setTimeout(resolve, 2500))]);
     } catch (err) {
       console.warn('Backend sync error for product:', err);
     }
-    showToast('Catalog Updated', `${product.name} (${product.size}) saved and synced across all devices.`, 'success');
+    showToast('Catalog Updated', `${normalizedProduct.name} (${normalizedProduct.size}) saved and synced across all devices.`, 'success');
   };
 
   // Delete Product from Admin
@@ -2191,6 +2385,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       note: note || `Status transitioned to ${status}`,
       updatedBy: 'Owner Admin'
     };
+    const existingOrder = orders.find(o => o.id === orderId);
+    const fullHistory = [...(existingOrder?.statusHistory || []), historyItem];
 
     setOrders(prev => prev.map(o => o.id === orderId ? {
       ...o,
@@ -2200,7 +2396,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     await Promise.allSettled([
       updateOrderStatusInDb(orderId, status, note),
-      updateOrderStatusApi(orderId, status, [historyItem], adminToken),
+      updateOrderStatusApi(orderId, status, fullHistory, adminToken),
     ]);
     showToast('Order Status Updated', `Order ${orderId} is now marked as ${status}.`, 'info');
   };
@@ -2217,6 +2413,158 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.warn('Failed to update full order:', err);
     }
     showToast('Custom Order Updated', `Order ${updatedOrder.id} successfully updated with new pricing, photos & specs.`, 'success');
+  };
+
+  // Generate or Rotate Unique Factory Dispatch QR Code for an Order
+  const generateOrderDispatchQr = async (orderId: string, regenerate = false): Promise<Order | null> => {
+    const target = orders.find(o => o.id === orderId);
+    if (!target) {
+      showToast('Order Not Found', `Could not find order ${orderId} to generate QR code.`, 'error');
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const nextCode = regenerate
+      ? createRotatedDispatchCode(target)
+      : (target.dispatchQrCode || computeDeterministicDispatchCode(target));
+
+    const updatedOrder: Order = {
+      ...target,
+      dispatchQrCode: nextCode,
+      dispatchQrGeneratedAt: now,
+      ...(regenerate ? { dispatchVerifiedAt: undefined, dispatchVerifiedBy: undefined } : {}),
+    };
+
+    saveDispatchQrRecord(orderId, {
+      dispatchQrCode: nextCode,
+      dispatchQrGeneratedAt: now,
+      ...(regenerate ? { dispatchVerifiedAt: undefined, dispatchVerifiedBy: undefined } : {}),
+    });
+
+    setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+    await Promise.allSettled([
+      updateFullOrderInDb(updatedOrder),
+      updateOrderApi(updatedOrder, adminToken || '170707'),
+    ]).catch(() => {});
+
+    showToast(
+      regenerate ? 'New Dispatch QR Generated' : 'Dispatch QR Ready',
+      `Unique verification code ${nextCode} linked to ${orderId}.`,
+      'success'
+    );
+    return updatedOrder;
+  };
+
+  // Verify an Order at the Factory Dispatch Counter via Scanned QR or Verification Code
+  const verifyOrderAtDispatchCounter = async (
+    orderIdOrScan: string,
+    scannedCode?: string,
+    options?: { verifiedBy?: string; nextStatus?: OrderStatus }
+  ): Promise<{ success: boolean; order?: Order; message: string }> => {
+    const rawLookup = scannedCode
+      ? `${orderIdOrScan}|${scannedCode}`
+      : orderIdOrScan;
+
+    const match = verifyOrderAgainstScan(orders, rawLookup, invoices);
+    if (!match.matched || !match.order) {
+      const msg = match.reason || 'No matching order found for scanned QR code.';
+      showToast('QR Scan Failed', msg, 'error');
+      return { success: false, message: msg };
+    }
+
+    if (!match.signatureValid) {
+      const msg = match.reason || 'QR verification token mismatch.';
+      showToast('Invalid Scan Token', msg, 'error');
+      return { success: false, order: match.order, message: msg };
+    }
+
+    const target = match.order;
+    const now = new Date().toISOString();
+    const activeCode = getOrderDispatchCode(target);
+    const verifier =
+      options?.verifiedBy ||
+      (isAdminUnlocked ? 'Owner Admin (Dispatch Counter)' : 'Factory Staff Counter');
+    const nextStatus = options?.nextStatus || target.status;
+
+    const historyEntry = {
+      status: nextStatus,
+      timestamp: now,
+      note: `Factory Dispatch Counter QR verified (${activeCode})${nextStatus !== target.status ? ` • Status set to ${nextStatus}` : ''}`,
+      updatedBy: verifier,
+    };
+
+    const updatedOrder: Order = {
+      ...target,
+      status: nextStatus,
+      dispatchQrCode: activeCode,
+      dispatchQrGeneratedAt: target.dispatchQrGeneratedAt || now,
+      dispatchVerifiedAt: now,
+      dispatchVerifiedBy: verifier,
+      statusHistory: [...(target.statusHistory || []), historyEntry],
+    };
+
+    saveDispatchQrRecord(target.id, {
+      dispatchQrCode: activeCode,
+      dispatchQrGeneratedAt: updatedOrder.dispatchQrGeneratedAt,
+      dispatchVerifiedAt: now,
+      dispatchVerifiedBy: verifier,
+    });
+
+    setOrders(prev => prev.map(o => (o.id === target.id ? updatedOrder : o)));
+
+    await Promise.allSettled([
+      updateFullOrderInDb(updatedOrder),
+      updateOrderStatusApi(target.id, nextStatus, updatedOrder.statusHistory, adminToken || '170707'),
+    ]).catch(() => {});
+
+    showToast(
+      'Dispatch QR Verified!',
+      `${target.id} (${target.customer?.name}) verified at counter${nextStatus !== target.status ? ` & marked ${nextStatus}` : ''}.`,
+      'success'
+    );
+
+    return {
+      success: true,
+      order: updatedOrder,
+      message: `Verified ${target.id} with token ${activeCode}.`,
+    };
+  };
+
+  // Reset / Unverify Dispatch Counter QR check-in (e.g., if scanned accidentally)
+  const clearOrderDispatchVerification = async (orderId: string) => {
+    const target = orders.find(o => o.id === orderId);
+    if (!target) return;
+
+    const now = new Date().toISOString();
+    const verifier = isAdminUnlocked ? 'Owner Admin' : 'Factory Staff Counter';
+    const historyEntry = {
+      status: target.status,
+      timestamp: now,
+      note: `Dispatch QR Counter verification reset (${getOrderDispatchCode(target)})`,
+      updatedBy: verifier,
+    };
+
+    const updatedOrder: Order = {
+      ...target,
+      dispatchVerifiedAt: undefined,
+      dispatchVerifiedBy: undefined,
+      statusHistory: [...(target.statusHistory || []), historyEntry],
+    };
+
+    saveDispatchQrRecord(orderId, {
+      dispatchQrCode: getOrderDispatchCode(target),
+      dispatchQrGeneratedAt: target.dispatchQrGeneratedAt,
+      dispatchVerifiedAt: undefined,
+      dispatchVerifiedBy: undefined,
+    });
+
+    setOrders(prev => prev.map(o => (o.id === orderId ? updatedOrder : o)));
+    await Promise.allSettled([
+      updateFullOrderInDb(updatedOrder),
+      updateOrderApi(updatedOrder, adminToken || '170707'),
+    ]).catch(() => {});
+
+    showToast('Counter Verification Reset', `${orderId} is back to Pending Counter Scan.`, 'info');
   };
 
   // Helper for sequential status pipeline
@@ -2248,6 +2596,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       updatedBy: 'Owner Admin'
     };
 
+    const existingOrder = orders.find(o => o.id === orderId);
+    const fullHistory = [...(existingOrder?.statusHistory || []), historyItem];
+
     setOrders(prev => prev.map(o => o.id === orderId ? {
       ...o,
       status: 'Cancelled' as OrderStatus,
@@ -2256,7 +2607,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     await Promise.allSettled([
       updateOrderStatusInDb(orderId, 'Cancelled', cancellationNote, 'Owner Admin'),
-      updateOrderStatusApi(orderId, 'Cancelled', [historyItem], adminToken),
+      updateOrderStatusApi(orderId, 'Cancelled', fullHistory, adminToken),
     ]);
 
     showToast('Order Cancelled', `Order ${orderId} has been marked as Cancelled.`, 'warning');
@@ -2265,6 +2616,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Delete Order Permanently (Admin Only)
   const deleteOrder = async (orderId: string) => {
     addStoredIds(DELETED_ORDER_IDS_KEY, [orderId]);
+    removeDispatchQrRecords([orderId]);
     // Optimistically remove from state immediately
     setOrders(prev => prev.filter(o => o.id !== orderId));
     if (recentCreatedOrder?.id === orderId) {
@@ -2290,6 +2642,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const deleteAllOrders = async () => {
     const previousOrders = [...orders];
     addStoredIds(DELETED_ORDER_IDS_KEY, previousOrders.map(o => o.id));
+    removeDispatchQrRecords(previousOrders.map(o => o.id));
+    safeStorage.removeItem(DISPATCH_QR_RECORDS_KEY);
     setStoredTimestamp(ORDERS_WIPED_BEFORE_KEY, Date.now());
     setOrders([]);
     setRecentCreatedOrder(null);
@@ -2314,6 +2668,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return;
     }
     addStoredIds(DELETED_ORDER_IDS_KEY, customOrders.map(o => o.id));
+    removeDispatchQrRecords(customOrders.map(o => o.id));
     setOrders(prev => prev.filter(o => !o.isCustomOrder));
     try {
       await Promise.allSettled(
@@ -2373,9 +2728,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     );
   };
 
-  // Background Automatic Status Progression Runner
+  // Track in-flight auto-progression transitions to prevent duplicate API calls
+  const autoProgressInFlightRef = useRef<Set<string>>(new Set());
+
+  // Background Automatic Status Progression Runner (Authenticated Admin Only)
   useEffect(() => {
-    if (!adminSettings.autoProgressOrders) return;
+    if (!adminSettings.autoProgressOrders || !isAdminUnlocked || !adminToken) return;
 
     const intervalMinutes = adminSettings.autoProgressIntervalMinutes || 2;
     const intervalMs = Math.max(intervalMinutes * 60 * 1000, 30000); // minimum 30s
@@ -2383,6 +2741,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const timer = setInterval(() => {
       const now = Date.now();
       orders.forEach(order => {
+        if (autoProgressInFlightRef.current.has(order.id)) return;
         const nextStatus = getNextProgressionStatus(order.status);
         if (!nextStatus) return;
 
@@ -2403,14 +2762,25 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             note: `Auto-transitioned to ${nextStatus} by automated plant fulfillment schedule`,
             updatedBy: 'Automated Plant System'
           };
+          autoProgressInFlightRef.current.add(order.id);
+          setOrders(prev =>
+            prev.map(o =>
+              o.id === order.id
+                ? { ...o, status: nextStatus, statusHistory: [...(o.statusHistory || []), historyItem] }
+                : o
+            )
+          );
+          const fullHistory = [...(order.statusHistory || []), historyItem];
           updateOrderStatusInDb(order.id, nextStatus, historyItem.note, 'Automated Plant System');
-          updateOrderStatusApi(order.id, nextStatus, [historyItem], adminToken);
+          updateOrderStatusApi(order.id, nextStatus, fullHistory, adminToken).finally(() => {
+            autoProgressInFlightRef.current.delete(order.id);
+          });
         }
       });
     }, 15000);
 
     return () => clearInterval(timer);
-  }, [adminSettings.autoProgressOrders, adminSettings.autoProgressIntervalMinutes, orders, adminToken]);
+  }, [adminSettings.autoProgressOrders, adminSettings.autoProgressIntervalMinutes, orders, adminToken, isAdminUnlocked]);
 
   // Update Admin Settings
   const updateAdminSettings = async (newSettings: AdminSettings) => {
@@ -2423,6 +2793,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ...newSettings,
       factoryStaffPin: /^\d{4}$/.test(cleanStaffPin) ? cleanStaffPin : (adminSettings.factoryStaffPin || '1234'),
       showAllProducts: newSettings.showAllProducts !== false,
+      hiddenProductIds: Array.isArray(newSettings.hiddenProductIds) ? newSettings.hiddenProductIds : (adminSettings.hiddenProductIds || []),
     };
     setAdminSettings(normalizedSettings);
     try {
@@ -2433,28 +2804,125 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     showToast('Settings Saved', 'Store configuration and delivery rules updated.', 'success');
   };
 
-  // Toggle All Products Storefront Visibility SHOW / NOT SHOW (Admin Only)
-  const toggleAllProductsVisibility = async (show: boolean) => {
-    if (!isAdminUnlocked) {
-      showToast('Admin Only', 'Only Owner Admin can change All Products Show / Not Show visibility.', 'error');
+  // Toggle Selected Single Product Storefront Visibility SHOW / NOT SHOW (Owner Admin Only)
+  const toggleProductVisibility = async (productId: string, show?: boolean) => {
+    if (!isAdminUnlocked || isFactoryStaffUnlocked) {
+      showToast('Admin Only', 'Only Owner Admin can change product Show / Not Show visibility.', 'error');
       return;
     }
+    const targetProduct = products.find(p => p.id === productId);
+    if (!targetProduct) return;
+
+    const currentlyVisible = isProductVisibleInStore(targetProduct, adminSettings);
+    const nextShow = show !== undefined ? show : !currentlyVisible;
+    const adminIdentity = adminEmail || 'mdhussain170707@gmail.com';
+
+    const existingTags = Array.isArray(targetProduct.tags) ? [...targetProduct.tags] : [];
+    const nextTags = nextShow
+      ? existingTags.filter(t => t !== 'hidden_not_show')
+      : (existingTags.includes('hidden_not_show') ? existingTags : [...existingTags, 'hidden_not_show']);
+
+    const updatedProduct: Product = {
+      ...targetProduct,
+      isVisible: nextShow,
+      tags: nextTags,
+    };
+
+    const currentHiddenIds = Array.isArray(adminSettings.hiddenProductIds) ? adminSettings.hiddenProductIds : [];
+    const nextHiddenIds = nextShow
+      ? currentHiddenIds.filter(id => id !== productId)
+      : (currentHiddenIds.includes(productId) ? currentHiddenIds : [...currentHiddenIds, productId]);
+
     const newSettings: AdminSettings = {
       ...adminSettings,
-      showAllProducts: show,
+      hiddenProductIds: nextHiddenIds,
     };
+
+    const updatedProducts = products.map(p => (p.id === productId ? updatedProduct : p));
+    setProducts(updatedProducts);
     setAdminSettings(newSettings);
     try {
+      safeStorage.setItem('hh_mineral_products_v1', JSON.stringify(updatedProducts));
       safeStorage.setItem('hh_mineral_admin_settings_v1', JSON.stringify(newSettings));
     } catch {}
-    saveAdminSettings(newSettings);
-    await saveSettingsApi(newSettings, adminToken).catch(err => console.warn('Cloud SQL settings sync error:', err));
+
+    await Promise.allSettled([
+      saveProductToDb(updatedProduct, adminIdentity, 'Authorized Admin'),
+      saveProductApi(updatedProduct, adminToken || '170707'),
+      saveAdminSettings(newSettings),
+      saveSettingsApi(newSettings, adminToken).catch(err => console.warn('Cloud SQL settings sync error:', err)),
+    ]);
 
     showToast(
-      show ? 'All Products: SHOW' : 'All Products: NOT SHOW (Hidden)',
+      nextShow ? `${targetProduct.name}: SHOW` : `${targetProduct.name}: NOT SHOW`,
+      nextShow
+        ? `${targetProduct.name} (${targetProduct.size}) is now visible to customers.`
+        : `${targetProduct.name} (${targetProduct.size}) is now hidden from non-admin users.`,
+      nextShow ? 'success' : 'info'
+    );
+  };
+
+  // Batch Selective Visibility Update for Checked Products (Owner Admin Only)
+  const setSelectedProductsVisibility = async (productIds: string[], show: boolean) => {
+    if (!isAdminUnlocked || isFactoryStaffUnlocked) {
+      showToast('Admin Only', 'Only Owner Admin can change selective product visibility.', 'error');
+      return;
+    }
+    const idSet = new Set(productIds.filter(Boolean));
+    if (idSet.size === 0) {
+      showToast('No Products Selected', 'Select one or more products first to update visibility.', 'info');
+      return;
+    }
+    const adminIdentity = adminEmail || 'mdhussain170707@gmail.com';
+
+    const changedProducts: Product[] = [];
+    const updatedProducts = products.map(p => {
+      if (!idSet.has(p.id)) return p;
+      const existingTags = Array.isArray(p.tags) ? [...p.tags] : [];
+      const nextTags = show
+        ? existingTags.filter(t => t !== 'hidden_not_show')
+        : (existingTags.includes('hidden_not_show') ? existingTags : [...existingTags, 'hidden_not_show']);
+      const nextProd: Product = {
+        ...p,
+        isVisible: show,
+        tags: nextTags,
+      };
+      changedProducts.push(nextProd);
+      return nextProd;
+    });
+
+    const currentHiddenIds = new Set(Array.isArray(adminSettings.hiddenProductIds) ? adminSettings.hiddenProductIds : []);
+    idSet.forEach(id => {
+      if (show) currentHiddenIds.delete(id);
+      else currentHiddenIds.add(id);
+    });
+
+    const newSettings: AdminSettings = {
+      ...adminSettings,
+      hiddenProductIds: Array.from(currentHiddenIds),
+    };
+
+    setProducts(updatedProducts);
+    setAdminSettings(newSettings);
+    try {
+      safeStorage.setItem('hh_mineral_products_v1', JSON.stringify(updatedProducts));
+      safeStorage.setItem('hh_mineral_admin_settings_v1', JSON.stringify(newSettings));
+    } catch {}
+
+    await Promise.allSettled([
+      saveAdminSettings(newSettings),
+      saveSettingsApi(newSettings, adminToken).catch(err => console.warn('Cloud SQL settings sync error:', err)),
+      ...changedProducts.flatMap(p => [
+        saveProductToDb(p, adminIdentity, 'Authorized Admin'),
+        saveProductApi(p, adminToken || '170707'),
+      ]),
+    ]);
+
+    showToast(
+      show ? `${changedProducts.length} Product(s): SHOW` : `${changedProducts.length} Product(s): NOT SHOW`,
       show
-        ? 'All catalog products are now visible across the storefront.'
-        : 'All catalog products are now hidden from customers and factory staff.',
+        ? `Selected ${changedProducts.length} product(s) are now visible on the storefront.`
+        : `Selected ${changedProducts.length} product(s) are now hidden from non-admin users.`,
       show ? 'success' : 'info'
     );
   };
@@ -2578,6 +3046,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setRecentCreatedOrder,
         trackOrderId,
         setTrackOrderId,
+        pendingDispatchScan,
+        setPendingDispatchScan,
+        generateOrderDispatchQr,
+        verifyOrderAtDispatchCounter,
+        clearOrderDispatchVerification,
 
         // GST Invoices
         invoices,
@@ -2598,7 +3071,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         addProduct,
         updateProduct,
-        toggleAllProductsVisibility,
+        toggleProductVisibility,
+        setSelectedProductsVisibility,
         toggleAllProductsSellingPrice,
         deleteProduct,
         deleteAllProducts,

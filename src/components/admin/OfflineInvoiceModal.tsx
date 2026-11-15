@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { CustomerInfo, Product, OrderStatus, Invoice } from '../../types';
-import { useStore } from '../../context/StoreContext';
+import { useStore, isProductVisibleInStore } from '../../context/StoreContext';
 import { numberToIndianRupees } from '../../lib/numberToWords';
 import {
   Receipt,
@@ -68,7 +68,14 @@ export const OfflineInvoiceModal: React.FC<OfflineInvoiceModalProps> = ({
   existingCustomers = [],
   onSuccess
 }) => {
-  const { products, adminSettings, createOfflineOrderWithInvoice, showToast } = useStore();
+  const { products, adminSettings, isAdminUnlocked, isFactoryStaffUnlocked, createOfflineOrderWithInvoice, showToast } = useStore();
+
+  const isOwnerAdminOnly = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
+  const availableProducts = useMemo(() => {
+    if (isOwnerAdminOnly) return products;
+    const filtered = products.filter(p => isProductVisibleInStore(p, adminSettings));
+    return filtered.length > 0 ? filtered : products;
+  }, [products, adminSettings, isOwnerAdminOnly]);
 
   const activeCustomer = initialCustomer || prefilledCustomer;
 
@@ -122,7 +129,7 @@ export const OfflineInvoiceModal: React.FC<OfflineInvoiceModalProps> = ({
   const [customInstructions, setCustomInstructions] = useState<string>('');
 
   // Line items
-  const defaultProduct = products[0] || {
+  const defaultProduct = availableProducts[0] || {
     id: 'prod-500ml',
     name: 'HH 500ml Packaged Drinking Water',
     size: '500ml',
@@ -169,7 +176,7 @@ export const OfflineInvoiceModal: React.FC<OfflineInvoiceModalProps> = ({
 
   // Add line item
   const handleAddItem = () => {
-    const nextProd = products[items.length % products.length] || defaultProduct;
+    const nextProd = (availableProducts.length > 0 ? availableProducts[items.length % availableProducts.length] : null) || defaultProduct;
     setItems(prev => [
       ...prev,
       {
@@ -191,7 +198,7 @@ export const OfflineInvoiceModal: React.FC<OfflineInvoiceModalProps> = ({
         if (it.id !== id) return it;
         // If product changed, update name, size, unitPrice & mrp
         if (updates.productId && updates.productId !== it.productId) {
-          const selectedProd = products.find(p => p.id === updates.productId);
+          const selectedProd = availableProducts.find(p => p.id === updates.productId) || products.find(p => p.id === updates.productId);
           if (selectedProd) {
             return {
               ...it,
@@ -762,7 +769,7 @@ export const OfflineInvoiceModal: React.FC<OfflineInvoiceModalProps> = ({
                         onChange={e => handleUpdateItem(item.id, { productId: e.target.value })}
                         className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-slate-900 bg-white hover:border-cyan-600 focus:border-cyan-600 focus:ring-2 focus:ring-cyan-500/20 shadow-xs outline-none transition-all cursor-pointer"
                       >
-                        {products.map(p => {
+                        {availableProducts.map(p => {
                           const pPackPrice = (p.price || 0) * PIECES_PER_QUANTITY;
                           const pPackMrp = (p.mrp || p.price || 0) * PIECES_PER_QUANTITY;
                           return (

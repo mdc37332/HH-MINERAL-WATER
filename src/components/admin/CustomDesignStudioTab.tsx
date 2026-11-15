@@ -352,7 +352,7 @@ export const CustomDesignStudioTab: React.FC<CustomDesignStudioTabProps> = ({
       `Please reply with *APPROVED* to confirm production and begin bottling.\n\n` +
       `Helpline: ${adminSettings.ownerWhatsApp} | HH Mineral Water Plant`;
 
-    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank');
+    window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
   // Catalog Pricing Edit Form State Initializer

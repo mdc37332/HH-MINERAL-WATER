@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useStore } from '../context/StoreContext';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useStore, isProductVisibleInStore } from '../context/StoreContext';
 import { Product, CustomDesignDetails, CustomFeatureItem } from '../types';
 import { OriginalImageUploader, UploadedImageData } from './OriginalImageUploader';
 import { DEFAULT_BOTTLE_IMAGE } from '../data/bottlePresets';
@@ -61,14 +61,22 @@ export const CustomDesignStudio: React.FC = () => {
     openAuthModal,
     showToast,
     isAdminUnlocked,
+    isFactoryStaffUnlocked,
+    adminSettings,
     addProduct,
     updateProduct,
     orders
   } = useStore();
 
+  const isOwnerAdminOnly = Boolean(isAdminUnlocked && !isFactoryStaffUnlocked);
+  const visibleStudioProducts = useMemo(() => {
+    if (isOwnerAdminOnly) return products;
+    return products.filter(p => isProductVisibleInStore(p, adminSettings));
+  }, [products, adminSettings, isOwnerAdminOnly]);
+
   // State
   const [selectedProductId, setSelectedProductId] = useState<string>(
-    selectedProductForCustom?.id || products[0]?.id || 'prod-250ml'
+    selectedProductForCustom?.id || visibleStudioProducts[0]?.id || products[0]?.id || 'prod-250ml'
   );
 
   const [eventType, setEventType] = useState<CustomDesignDetails['eventType']>('Wedding');
@@ -113,9 +121,18 @@ export const CustomDesignStudio: React.FC = () => {
   // Sync if context set selectedProductForCustom
   useEffect(() => {
     if (selectedProductForCustom) {
-      setSelectedProductId(selectedProductForCustom.id);
+      if (isOwnerAdminOnly || isProductVisibleInStore(selectedProductForCustom, adminSettings)) {
+        setSelectedProductId(selectedProductForCustom.id);
+      }
     }
-  }, [selectedProductForCustom]);
+  }, [selectedProductForCustom, isOwnerAdminOnly, adminSettings]);
+
+  // Keep selectedProductId valid if current selection becomes hidden for non-owners
+  useEffect(() => {
+    if (visibleStudioProducts.length > 0 && !visibleStudioProducts.some(p => p.id === selectedProductId)) {
+      setSelectedProductId(visibleStudioProducts[0].id);
+    }
+  }, [visibleStudioProducts, selectedProductId]);
 
   // Default Custom Features & Add-ons Suite
   const DEFAULT_CUSTOM_FEATURES: CustomFeatureItem[] = [
@@ -276,7 +293,10 @@ export const CustomDesignStudio: React.FC = () => {
     }
   };
 
-  const activeProduct = products.find(p => p.id === selectedProductId) || products[0] || fallbackDefaultBottle;
+  const activeProduct =
+    visibleStudioProducts.find(p => p.id === selectedProductId) ||
+    visibleStudioProducts[0] ||
+    fallbackDefaultBottle;
   
   // Base bottle custom price (or manual override)
   const baseBottleCustomPrice = customPricePerBottleOverride !== null
@@ -510,6 +530,16 @@ export const CustomDesignStudio: React.FC = () => {
   };
 
   const handleAddToCart = () => {
+    if (!quantity || quantity < 600) {
+      showToast(
+        'Minimum Quantity Required',
+        'Minimum quantity for Custom Design Orders is 600 pieces.',
+        'error'
+      );
+      setActiveStep(4);
+      return;
+    }
+
     if (!currentUser) {
       openAuthModal('login', 'Please sign in or create an account to save your custom design order.');
       return;
@@ -596,6 +626,15 @@ export const CustomDesignStudio: React.FC = () => {
         }))
     };
 
+    if (!isOwnerAdminOnly && (visibleStudioProducts.length === 0 || !isProductVisibleInStore(activeProduct, adminSettings))) {
+      showToast(
+        'Bottle Unavailable',
+        'No visible bottle format is currently available for custom orders.',
+        'warning'
+      );
+      return;
+    }
+
     addToCart(activeProduct, quantity, customDetails);
     setIsCartOpen(true);
     showToast('Custom Order Added', `${activeProduct.name} custom order added to your cart.`, 'success');
@@ -643,8 +682,8 @@ export const CustomDesignStudio: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-      {/* Admin Quick Control Bar if logged in as Admin */}
-      {isAdminUnlocked && (
+      {/* Admin Quick Control Bar if logged in as Owner Admin */}
+      {isOwnerAdminOnly && (
         <div className="mb-6 bg-[#121212] text-white rounded-2xl p-4 border border-[#C5A059]/30 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-[#1c1c1c] text-[#DFC283] border border-[#C5A059]/30 flex items-center justify-center font-bold">
@@ -760,7 +799,7 @@ export const CustomDesignStudio: React.FC = () => {
                     Choose your bottle format for your custom bespoke bottling order.
                   </p>
                 </div>
-                {isAdminUnlocked && (
+                {isOwnerAdminOnly && (
                   <div className="flex items-center gap-2">
                     <span className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-[#C5A059]/10 text-[#DFC283] text-[10px] font-bold border border-[#C5A059]/30">
                       <ShieldCheck className="w-3 h-3 text-[#C5A059]" />
@@ -840,57 +879,63 @@ export const CustomDesignStudio: React.FC = () => {
 
               {/* Bottle Formats Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {products.map(prod => {
-                  const isSelected = prod.id === selectedProductId;
-                  const prodCustomPrice = prod.customDesignPrice || (prod.price * 2);
-                  return (
-                    <div
-                      key={prod.id}
-                      onClick={() => setSelectedProductId(prod.id)}
-                      className={`relative p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col items-center text-center group ${
-                        isSelected
-                          ? 'border-[#C5A059] bg-[#1a1a1a] shadow-lg ring-1 ring-[#C5A059]/40'
-                          : 'border-[#262626] hover:border-[#383838] bg-[#161616]'
-                      }`}
-                    >
-                      {/* Price Edit Icon Button - Admin Only */}
-                      {isAdminUnlocked && (
-                        <button
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation();
-                            handleOpenPriceEdit(prod);
-                          }}
-                          className="absolute top-2 left-2 p-1 rounded-lg bg-[#222222] hover:bg-[#2c2c2c] text-neutral-300 hover:text-[#DFC283] border border-[#333333] shadow-xs opacity-90 group-hover:opacity-100 transition-all cursor-pointer z-10"
-                          title="Edit price & details (Admin Only)"
-                        >
-                          <Edit3 className="w-3 h-3 text-[#C5A059]" />
-                        </button>
-                      )}
+                {visibleStudioProducts.length === 0 ? (
+                  <div className="col-span-full bg-[#161616] border border-[#2a2a2a] rounded-2xl p-6 text-center text-xs text-neutral-400">
+                    All bottle formats are currently hidden from public view. Please check back shortly.
+                  </div>
+                ) : (
+                  visibleStudioProducts.map(prod => {
+                    const isSelected = prod.id === selectedProductId;
+                    const prodCustomPrice = prod.customDesignPrice || (prod.price * 2);
+                    return (
+                      <div
+                        key={prod.id}
+                        onClick={() => setSelectedProductId(prod.id)}
+                        className={`relative p-3.5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col items-center text-center group ${
+                          isSelected
+                            ? 'border-[#C5A059] bg-[#1a1a1a] shadow-lg ring-1 ring-[#C5A059]/40'
+                            : 'border-[#262626] hover:border-[#383838] bg-[#161616]'
+                        }`}
+                      >
+                        {/* Price Edit Icon Button - Owner Admin Only */}
+                        {isOwnerAdminOnly && (
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleOpenPriceEdit(prod);
+                            }}
+                            className="absolute top-2 left-2 p-1 rounded-lg bg-[#222222] hover:bg-[#2c2c2c] text-neutral-300 hover:text-[#DFC283] border border-[#333333] shadow-xs opacity-90 group-hover:opacity-100 transition-all cursor-pointer z-10"
+                            title="Edit price & details (Admin Only)"
+                          >
+                            <Edit3 className="w-3 h-3 text-[#C5A059]" />
+                          </button>
+                        )}
 
-                      <span className="text-xs font-bold text-white">{prod.size}</span>
-                      <div className="h-20 w-full flex items-center justify-center my-2">
-                        <img
-                          src={prod.image}
-                          alt={prod.name}
-                          className="max-h-full object-contain group-hover:scale-105 transition-transform"
-                        />
+                        <span className="text-xs font-bold text-white">{prod.size}</span>
+                        <div className="h-20 w-full flex items-center justify-center my-2">
+                          <img
+                            src={prod.image}
+                            alt={prod.name}
+                            className="max-h-full object-contain group-hover:scale-105 transition-transform"
+                          />
+                        </div>
+                        <div className="space-y-0.5 w-full">
+                          <div className="font-heading text-sm font-extrabold text-[#DFC283]">₹{prodCustomPrice}/bottle</div>
+                          <div className="text-[10px] text-neutral-400 font-medium">Custom (Std: ₹{prod.price})</div>
+                        </div>
+                        {isSelected && (
+                          <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-gradient-to-r from-[#C5A059] to-[#D4AF37] text-black font-black flex items-center justify-center text-[10px]">
+                            ✓
+                          </span>
+                        )}
                       </div>
-                      <div className="space-y-0.5 w-full">
-                        <div className="font-heading text-sm font-extrabold text-[#DFC283]">₹{prodCustomPrice}/bottle</div>
-                        <div className="text-[10px] text-neutral-400 font-medium">Custom (Std: ₹{prod.price})</div>
-                      </div>
-                      {isSelected && (
-                        <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-gradient-to-r from-[#C5A059] to-[#D4AF37] text-black font-black flex items-center justify-center text-[10px]">
-                          ✓
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
 
-                {/* Add New Bottle Format Card - Admin Only */}
-                {isAdminUnlocked && (
+                {/* Add New Bottle Format Card - Owner Admin Only */}
+                {isOwnerAdminOnly && (
                   <div
                     onClick={() => setIsAddBottleModalOpen(true)}
                     className="p-3.5 rounded-2xl border-2 border-dashed border-[#C5A059]/40 hover:border-[#C5A059] bg-[#181818]/60 hover:bg-[#1f1f1f] transition-all cursor-pointer flex flex-col items-center justify-center text-center min-h-[160px] group"
@@ -1681,7 +1726,7 @@ export const CustomDesignStudio: React.FC = () => {
                         <AlertCircle className="w-4 h-4" />
                       </div>
                       <div className="flex-1">
-                        <p className="font-heading font-black">Minimum custom design order is 600 pieces.</p>
+                        <p className="font-heading font-black">Minimum quantity for Custom Design Orders is 600 pieces.</p>
                         <p className="text-[11px] text-rose-300 font-medium mt-0.5">
                           Please enter at least 600 pieces to enable order checkout.
                         </p>
@@ -2376,8 +2421,8 @@ export const CustomDesignStudio: React.FC = () => {
         </div>
       )}
 
-      {/* 2. ADD NEW BOTTLE FORMAT MODAL - Admin Only */}
-      {isAddBottleModalOpen && isAdminUnlocked && (
+      {/* 2. ADD NEW BOTTLE FORMAT MODAL - Owner Admin Only */}
+      {isAddBottleModalOpen && isOwnerAdminOnly && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-[#161616] rounded-3xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-[#2a2a2a] space-y-5 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between pb-3 border-b border-[#262626]">

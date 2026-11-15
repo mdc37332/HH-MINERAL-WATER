@@ -85,7 +85,15 @@ export const WaterQualityTab: React.FC<WaterQualityTabProps> = ({ showToast: pro
 
   const handleAddLog = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLog.batchNumber || !newLog.phLevel || !newLog.tdsPpm) {
+    if (
+      !newLog.batchNumber?.trim() ||
+      newLog.phLevel === undefined ||
+      newLog.phLevel === null ||
+      isNaN(Number(newLog.phLevel)) ||
+      newLog.tdsPpm === undefined ||
+      newLog.tdsPpm === null ||
+      isNaN(Number(newLog.tdsPpm))
+    ) {
       showToast('Missing Parameters', 'Please fill all required testing parameters.', 'warning');
       return;
     }
@@ -138,14 +146,16 @@ export const WaterQualityTab: React.FC<WaterQualityTabProps> = ({ showToast: pro
       `"${(l.remarks || '').replace(/"/g, '""')}"`
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.setAttribute('href', url);
     link.setAttribute('download', `HH_Water_Quality_Lab_Logs_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
     showToast('Exported', 'Quality log CSV downloaded.', 'success');
   };
 

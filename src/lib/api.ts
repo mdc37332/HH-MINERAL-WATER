@@ -174,7 +174,7 @@ export async function adminVerifyOtpApi(challengeId: string, otp: string): Promi
       if (isMasterOtp || (activeStoredOtp && cleanOtp === activeStoredOtp)) {
         return {
           success: true,
-          token: `hh_adm_${cleanOtp}_master_session`,
+          token: `hh_adm_${cleanOtp}_${Date.now()}_master_session`,
           adminEmail: 'Administrator',
           expiresIn: 86400,
           message: 'Admin access verified successfully.'
@@ -192,7 +192,7 @@ export async function adminVerifyOtpApi(challengeId: string, otp: string): Promi
     if (isMasterOtp || (activeStoredOtp && cleanOtp === activeStoredOtp)) {
       return {
         success: true,
-        token: `hh_adm_${cleanOtp}_master_session`,
+        token: `hh_adm_${cleanOtp}_${Date.now()}_master_session`,
         adminEmail: 'Administrator',
         expiresIn: 86400,
         message: 'Admin access verified successfully.'
@@ -204,26 +204,21 @@ export async function adminVerifyOtpApi(challengeId: string, otp: string): Promi
 
 export async function adminVerifySessionApi(adminToken: string): Promise<boolean> {
   if (!adminToken) return false;
-  if (adminToken === '170707' || adminToken.startsWith('hh_adm_')) {
-    try {
-      const res = await fetch('/api/admin/verify-session', {
-        headers: { Authorization: `Bearer ${adminToken}` }
-      });
-      if (res.ok) return true;
-      // If server returned non-ok (e.g. cold start) but token has valid prefix
-      return true;
-    } catch {
-      // Offline / network failure with valid token prefix
-      return true;
-    }
-  }
+  const isRecognizedMasterPrefix = adminToken === '170707' || adminToken.startsWith('hh_adm_');
   try {
     const res = await fetch('/api/admin/verify-session', {
       headers: { Authorization: `Bearer ${adminToken}` }
     });
-    return res.ok;
+    if (res.ok) return true;
+    // Honor explicit server revocation / invalidation (401/403)
+    if (res.status === 401 || res.status === 403) {
+      return false;
+    }
+    // Transient 5xx cold-start resilience for valid prefix
+    return isRecognizedMasterPrefix;
   } catch {
-    return false;
+    // Offline / network failure resilience for valid prefix
+    return isRecognizedMasterPrefix;
   }
 }
 

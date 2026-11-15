@@ -21,6 +21,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     shortDesc: 'Compact, event-ready 250ml pure mineral bottle.',
     description: 'Ultra-pure 7-stage processed mineral water in convenient 250ml pocket bottles. Perfectly balanced with vital electrolytes. Ideal for luxury weddings, corporate banquets, boardroom meetings, and hospitality guests.',
     inStock: true,
+    isVisible: true,
     stockCount: 1200,
     stockStatus: 'In Stock',
     minOrderQty: 1,
@@ -64,6 +65,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     shortDesc: 'Crisp & refreshing 500ml on-the-go hydration.',
     description: 'Natural mineral hydration in an ergonomic 500ml bottle designed for active lifestyles, workouts, road trips, dining tables, and conference desks.',
     inStock: true,
+    isVisible: true,
     stockCount: 950,
     stockStatus: 'In Stock',
     minOrderQty: 1,
@@ -107,6 +109,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     shortDesc: 'Full 1-litre table bottle with premium mineral balance.',
     description: 'High-clarity 1 Litre mineral water bottle engineered for family dining, restaurants, corporate boardrooms, long journeys, and hotel guest suites. 7-stage UV & ozonation purified with essential electrolytes.',
     inStock: true,
+    isVisible: true,
     stockCount: 650,
     stockStatus: 'In Stock',
     minOrderQty: 1,
@@ -152,6 +155,7 @@ export const INITIAL_PRODUCTS: Product[] = [
     shortDesc: 'Extra-large 2L bottle for home, office & travel supply.',
     description: 'Maximum volume 2-Litre heavy-duty bottle for home kitchens, work pantries, picnics, catering setups, and extended road travel.',
     inStock: true,
+    isVisible: true,
     stockCount: 400,
     stockStatus: 'In Stock',
     minOrderQty: 1,
@@ -242,8 +246,9 @@ export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
   bankUpiId: '8017341130@upi',
   invoiceTerms: '1. Goods once sold will not be taken back or exchanged.\n2. Invoices are subject to Kolkata jurisdiction.\n3. Keep packaged bottles in a dry, clean place away from direct sunlight.',
 
-  // Pricing & Selling Price Controls (Admin-Only)
+  // Pricing, Visibility & Selling Price Controls (Admin-Only)
   showAllProducts: true,
+  hiddenProductIds: [],
   showSellingPrice: true,
   showDiscountPercentage: true,
   disabledSellingPriceProductIds: [],

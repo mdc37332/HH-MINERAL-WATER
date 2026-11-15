@@ -1,5 +1,12 @@
-import { Invoice } from '../types';
+import { Invoice, Order } from '../types';
 import { getFinancialYear } from './invoiceGenerator';
+import {
+  buildInvoiceQrSvgSync,
+  buildOrderQrSvgSync,
+  createQrMatrix,
+  getInvoiceDispatchQrInfo,
+  getOrderDispatchCode,
+} from './dispatchQr';
 import jsPDF from 'jspdf';
 
 export interface InvoiceValidationResult {
@@ -170,7 +177,8 @@ export function validateInvoiceForPrinting(
  */
 export function generatePrintableInvoiceHtml(
   invoice: Invoice,
-  copyType: string = 'Original for Recipient'
+  copyType: string = 'Original for Recipient',
+  linkedOrder?: Order
 ): string {
   const safeInvoice = ensureSanitizedInvoice(invoice);
   const safeDate = safeInvoice.invoiceDate ? new Date(safeInvoice.invoiceDate) : new Date();
@@ -197,6 +205,12 @@ export function generatePrintableInvoiceHtml(
   const discount = Number(safeInvoice.discount ?? 0);
   const grandTotal = Number(safeInvoice.grandTotal ?? 0);
   const financialYear = safeInvoice.financialYear || getFinancialYear(safeDate);
+  const qrInfo = getInvoiceDispatchQrInfo(safeInvoice, linkedOrder);
+  const dispatchQrSvg = buildInvoiceQrSvgSync(safeInvoice, linkedOrder, 62);
+  const isQrVerified = Boolean(qrInfo.verifiedAt);
+  const qrVerifiedLabel = isQrVerified
+    ? `VERIFIED${qrInfo.verifiedBy ? ` (${qrInfo.verifiedBy.slice(0, 16)})` : ''}`
+    : 'SCAN AT COUNTER';
 
   const itemsHtml = items.map((item, idx) => `
     <tr style="background-color: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
@@ -535,11 +549,34 @@ export function generatePrintableInvoiceHtml(
 
     .footer-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1.05fr 1.15fr 0.95fr;
       gap: 6px;
       border-top: 1px solid #cbd5e1;
       padding-top: 6px;
       margin-top: 6px;
+    }
+
+    .dispatch-qr-box {
+      border: 1px solid #94a3b8;
+      border-radius: 6px;
+      padding: 5px 7px;
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dispatch-qr-frame {
+      width: 64px;
+      height: 64px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 1px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
     }
 
     .signatory-box {
@@ -846,25 +883,43 @@ export function generatePrintableInvoiceHtml(
       </div>
     </div>
 
-    <!-- Terms & Signature Footer -->
+    <!-- Terms, Dispatch QR Counter & Signature Footer -->
     <div class="footer-grid avoid-break">
       <div>
-        <div style="font-weight: 800; font-size: 9.5px; text-transform: uppercase; color: #334155; margin-bottom: 2px;">Terms & Conditions</div>
-        <div style="font-size: 8.5px; color: #64748b; line-height: 1.35; white-space: pre-line;">
+        <div style="font-weight: 800; font-size: 9px; text-transform: uppercase; color: #334155; margin-bottom: 2px;">Terms & Conditions</div>
+        <div style="font-size: 8px; color: #64748b; line-height: 1.3; white-space: pre-line;">
           ${company.invoiceTerms || '1. Goods once sold will not be taken back or exchanged.\n2. Invoices are subject to Kolkata jurisdiction.\n3. Storage: Keep in a dry place away from direct sunlight.'}
+        </div>
+      </div>
+
+      <div class="dispatch-qr-box">
+        <div class="dispatch-qr-frame">${dispatchQrSvg}</div>
+        <div style="min-width: 0; flex: 1;">
+          <div style="font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.4px; color: #0f172a;">
+            Dispatch QR Counter
+          </div>
+          <div style="display: inline-block; font-family: monospace; font-weight: 800; font-size: 8.5px; background: #0f172a; color: #facc15; padding: 1px 5px; border-radius: 3px; margin: 2px 0;">
+            ${qrInfo.dispatchCode}
+          </div>
+          <div style="font-size: 7.5px; font-weight: 800; color: ${isQrVerified ? '#047857' : '#0e7490'}; margin-top: 1px;">
+            ${isQrVerified ? '✓' : '◉'} ${qrVerifiedLabel}
+          </div>
+          <div style="font-size: 7px; color: #64748b; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            Ref: ${qrInfo.orderId}
+          </div>
         </div>
       </div>
 
       <div class="signatory-box">
         <div>
-          <div style="font-weight: 800; color: #0f172a; font-size: 10px;">For ${company.legalBusinessName || 'HH MINERAL WATER BOTTLING & PACKAGING'}</div>
-          <div style="font-size: 8.5px; color: #64748b;">Authorized Signatory / Bottling Division</div>
+          <div style="font-weight: 800; color: #0f172a; font-size: 9.5px;">For ${company.legalBusinessName || 'HH MINERAL WATER BOTTLING & PACKAGING'}</div>
+          <div style="font-size: 8px; color: #64748b;">Authorized Signatory / Bottling Division</div>
         </div>
-        <div style="margin-top: 14px;">
-          <div style="display: inline-block; border-top: 1px solid #475569; padding-top: 2px; font-weight: 700; color: #334155; padding-left: 14px; padding-right: 14px; font-size: 9px;">
+        <div style="margin-top: 12px;">
+          <div style="display: inline-block; border-top: 1px solid #475569; padding-top: 2px; font-weight: 700; color: #334155; padding-left: 12px; padding-right: 12px; font-size: 8.5px;">
             Authorized Signatory
           </div>
-          <div style="font-size: 7.5px; color: #94a3b8; margin-top: 1px;">This is a digitally verified GST Tax Invoice.</div>
+          <div style="font-size: 7px; color: #94a3b8; margin-top: 1px;">This is a digitally verified GST Tax Invoice.</div>
         </div>
       </div>
     </div>
@@ -893,7 +948,8 @@ export function generatePrintableInvoiceHtml(
  */
 export async function printInvoiceDocument(
   invoice: Invoice,
-  copyType: string = 'Original for Recipient'
+  copyType: string = 'Original for Recipient',
+  linkedOrder?: Order
 ): Promise<boolean> {
   const validation = validateInvoiceForPrinting(invoice);
   if (!validation.isValid) {
@@ -907,19 +963,19 @@ export async function printInvoiceDocument(
     executeFallbackPrint();
     const isEmbedded = typeof window !== 'undefined' && window.self !== window.top;
     if (isEmbedded) {
-      setTimeout(() => openInvoicePrintTab(invoice, copyType), 400);
+      setTimeout(() => openInvoicePrintTab(invoice, copyType, linkedOrder), 400);
     }
     return true;
   }
 
-  const html = generatePrintableInvoiceHtml(invoice, copyType);
+  const html = generatePrintableInvoiceHtml(invoice, copyType, linkedOrder);
 
   return new Promise((resolve) => {
     try {
       const isEmbedded = typeof window !== 'undefined' && window.self !== window.top;
       if (isEmbedded) {
         // Direct print in sandboxed iframe is blocked; open clean print tab immediately
-        openInvoicePrintTab(invoice, copyType);
+        openInvoicePrintTab(invoice, copyType, linkedOrder);
         resolve(true);
         return;
       }
@@ -962,14 +1018,14 @@ export async function printInvoiceDocument(
         }
 
         if (!printed) {
-          openInvoicePrintTab(invoice, copyType);
+          openInvoicePrintTab(invoice, copyType, linkedOrder);
         }
         resolve(true);
       }, 350);
 
     } catch (err) {
       console.warn('Iframe print setup failed, opening print tab:', err);
-      openInvoicePrintTab(invoice, copyType);
+      openInvoicePrintTab(invoice, copyType, linkedOrder);
       resolve(false);
     }
   });
@@ -1002,9 +1058,10 @@ function executeFallbackPrint() {
  */
 export function downloadInvoiceHtml(
   invoice: Invoice,
-  copyType: string = 'Original for Recipient'
+  copyType: string = 'Original for Recipient',
+  linkedOrder?: Order
 ): void {
-  const html = generatePrintableInvoiceHtml(invoice, copyType);
+  const html = generatePrintableInvoiceHtml(invoice, copyType, linkedOrder);
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   
@@ -1026,9 +1083,10 @@ export function downloadInvoiceHtml(
  */
 export function openInvoicePrintTab(
   invoice: Invoice,
-  copyType: string = 'Original for Recipient'
+  copyType: string = 'Original for Recipient',
+  linkedOrder?: Order
 ): void {
-  const html = generatePrintableInvoiceHtml(invoice, copyType);
+  const html = generatePrintableInvoiceHtml(invoice, copyType, linkedOrder);
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   try {
@@ -1075,6 +1133,9 @@ export function openDeliveryChallanPrintTab(
   const consignorAddress = settings?.businessAddress || 'Plot No. 42, Water Treatment Plant & Bottling Unit, Industrial Estate';
   const consignorGstin = settings?.gstin || '19AAACH7890C1Z5';
   const consignorPhone = settings?.ownerWhatsApp || settings?.helplinePhone || '8017341130';
+  const dispatchCode = getOrderDispatchCode(order);
+  const challanQrSvg = buildOrderQrSvgSync(order, 72, dispatchCode);
+  const isQrVerified = Boolean(order.dispatchVerifiedAt);
 
   const rows = safeItems.map((item, idx) => {
     const prodName = item?.product?.name || item?.productName || item?.name || 'HH Packaged Drinking Water';
@@ -1187,7 +1248,26 @@ export function openDeliveryChallanPrintTab(
       </div>
     </div>
 
-    <div style="margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; text-align: center; font-size: 9.5px; color: #475569;">
+    <div style="margin-top: 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 12px; background: #f8fafc; border: 1.5px solid #0f172a; border-radius: 8px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <div style="width: 74px; height: 74px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          ${challanQrSvg}
+        </div>
+        <div>
+          <div style="font-size: 9px; font-weight: 800; color: #64748b; text-transform: uppercase;">FACTORY DISPATCH COUNTER QR PASS</div>
+          <div style="font-family: monospace; font-size: 13px; font-weight: 900; color: #0f172a; margin: 2px 0;">${dispatchCode}</div>
+          <div style="font-size: 9px; font-weight: 800; color: ${isQrVerified ? '#047857' : '#0e7490'};">
+            ${isQrVerified ? `✓ COUNTER VERIFIED${order.dispatchVerifiedBy ? ` • ${order.dispatchVerifiedBy}` : ''}` : '◉ SCAN AT FACTORY DISPATCH GATE TO VERIFY'}
+          </div>
+        </div>
+      </div>
+      <div style="text-align: right; font-size: 9px; color: #475569;">
+        <strong style="color: #0f172a; display: block;">Mode: ${order.deliveryType === 'self_pickup' ? 'SELF PICKUP COUNTER' : 'DOORSTEP DISPATCH'}</strong>
+        <span>Status: ${order.status || 'Confirmed'}</span>
+      </div>
+    </div>
+
+    <div style="margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; text-align: center; font-size: 9.5px; color: #475569;">
       <div>
         <div style="height: 28px; border-bottom: 1px solid #94a3b8; margin-bottom: 4px;"></div>
         <strong style="color: #0f172a; display: block;">Warehouse Dispatch Officer</strong>
@@ -1243,7 +1323,8 @@ export function openDeliveryChallanPrintTab(
  */
 export function generateVectorInvoicePdf(
   invoice: Invoice,
-  copyType: string = 'Original for Recipient'
+  copyType: string = 'Original for Recipient',
+  linkedOrder?: Order
 ): jsPDF {
   const safeInvoice = ensureSanitizedInvoice(invoice);
   const doc = new jsPDF({
@@ -1915,72 +1996,140 @@ export function generateVectorInvoicePdf(
   doc.text(wordsStr, rightColX + 3, wordsBoxY + 6.8);
 
   // -------------------------------------------------------------
-  // 6. TERMS & CONDITIONS & SIGNATURE (Anchored to lower section for full A4 page fill)
+  // 6. TERMS & CONDITIONS, DISPATCH QR COUNTER & SIGNATURE
   // -------------------------------------------------------------
-  const bottomReserve = 34; // Reserve height for Terms, Signature box, line and bottom note
+  const bottomReserve = 34; // Reserve height for Terms, Dispatch QR, Signature box, line and bottom note
   const targetFooterY = pageHeight - margin - bottomReserve;
   const footerY = Math.max(Math.max(bankBoxY + bankBoxH, wordsBoxY + wordsBoxH) + 4, targetFooterY);
 
-  // Left: Terms & Conditions
-  doc.setFontSize(6.2);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(51, 65, 85);
-  doc.text('TERMS & CONDITIONS', tableX + 2, footerY + 3.5);
-
-  doc.setFontSize(5.2);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('1. Goods once sold will not be taken back or exchanged.', tableX + 2, footerY + 7);
-  doc.text('2. All disputes are subject to Kolkata jurisdiction only.', tableX + 2, footerY + 10.5);
-  doc.text('3. Storage: Store in a dry place away from direct sunlight.', tableX + 2, footerY + 14);
-  doc.text('4. Quality Standard: Processed and bottled under IS 14543 standards.', tableX + 2, footerY + 17.5);
-  if (safeInvoice.customLabelDetails) {
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(107, 33, 168);
-    doc.text(`5. Custom Label: "${safeInvoice.customLabelDetails.brandName || customer.name}" (${safeInvoice.customLabelDetails.finishType || 'Matte'}, Cap: ${safeInvoice.customLabelDetails.bottleCapColor || 'Gold'})`, tableX + 2, footerY + 20.5);
-  }
-
-  // Right: Authorized Signatory Box
-  const signBoxH = 22;
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(203, 213, 225);
-  doc.roundedRect(rightColX, footerY, rightColW, signBoxH, 1.5, 1.5, 'FD');
-
-  doc.setFontSize(6.8);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text(`For ${company.legalBusinessName || 'HH MINERAL WATER BOTTLING & PACKAGING'}`, rightColX + 3, footerY + 4);
-
-  doc.setFontSize(5.5);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(100, 116, 139);
-  doc.text('Authorized Signatory / Bottling Division', rightColX + 3, footerY + 7.5);
-
-  doc.setDrawColor(71, 85, 105);
-  doc.setLineWidth(0.3);
-  doc.line(rightColX + rightColW - 38, footerY + 14.5, rightColX + rightColW - 3, footerY + 14.5);
-
+  // Left (~68mm): Terms & Conditions
   doc.setFontSize(6);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(51, 65, 85);
-  doc.text('Authorized Signatory', rightColX + rightColW - 20.5, footerY + 17.5, { align: 'center' });
+  doc.text('TERMS & CONDITIONS', tableX + 1.5, footerY + 3.5);
 
-  doc.setFontSize(4.8);
+  doc.setFontSize(4.9);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('1. Goods once sold will not be taken back or exchanged.', tableX + 1.5, footerY + 6.8);
+  doc.text('2. All disputes are subject to Kolkata jurisdiction only.', tableX + 1.5, footerY + 10.1);
+  doc.text('3. Storage: Store in a dry place away from direct sunlight.', tableX + 1.5, footerY + 13.4);
+  doc.text('4. Quality Standard: Processed under IS 14543 standards.', tableX + 1.5, footerY + 16.7);
+  if (safeInvoice.customLabelDetails) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(107, 33, 168);
+    doc.text(`5. Custom: "${(safeInvoice.customLabelDetails.brandName || customer.name || '').slice(0, 22)}" (${safeInvoice.customLabelDetails.finishType || 'Matte'})`, tableX + 1.5, footerY + 19.8);
+  }
+
+  // Center (~56mm): Vector Factory Dispatch QR Counter Box
+  const qrBoxX = tableX + 67;
+  const qrBoxW = 57;
+  const qrBoxH = 22;
+  const qrInfo = getInvoiceDispatchQrInfo(safeInvoice, linkedOrder);
+
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(148, 163, 184);
+  doc.roundedRect(qrBoxX, footerY, qrBoxW, qrBoxH, 1.5, 1.5, 'FD');
+
+  // Vector QR code square inside white frame (17.5mm x 17.5mm)
+  const qrFrameSize = 18;
+  const qrFrameX = qrBoxX + 2;
+  const qrFrameY = footerY + 2;
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(203, 213, 225);
+  doc.rect(qrFrameX, qrFrameY, qrFrameSize, qrFrameSize, 'FD');
+
+  const matrix = createQrMatrix(qrInfo.payload);
+  const quietMm = 1;
+  const modSize = (qrFrameSize - quietMm * 2) / matrix.size;
+  doc.setFillColor(15, 23, 42);
+  for (let r = 0; r < matrix.size; r++) {
+    for (let c = 0; c < matrix.size; c++) {
+      if (matrix.get(r, c)) {
+        doc.rect(
+          qrFrameX + quietMm + c * modSize,
+          qrFrameY + quietMm + r * modSize,
+          modSize + 0.02,
+          modSize + 0.02,
+          'F'
+        );
+      }
+    }
+  }
+
+  // Dispatch QR metadata right next to QR graphic
+  const qrMetaX = qrFrameX + qrFrameSize + 2.2;
+  doc.setFontSize(5.3);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text('DISPATCH QR COUNTER', qrMetaX, footerY + 4.5);
+
+  doc.setFillColor(15, 23, 42);
+  doc.roundedRect(qrMetaX, footerY + 6.2, qrBoxW - qrFrameSize - 6, 4.4, 0.8, 0.8, 'F');
+  doc.setFontSize(5.2);
+  doc.setFont('courier', 'bold');
+  doc.setTextColor(250, 204, 21); // gold
+  doc.text(qrInfo.dispatchCode, qrMetaX + 1.2, footerY + 9.2);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5);
+  if (qrInfo.verifiedAt) {
+    doc.setTextColor(4, 120, 87); // emerald-700
+    doc.text('VERIFIED AT COUNTER', qrMetaX, footerY + 14.2);
+  } else {
+    doc.setTextColor(14, 116, 144); // cyan-700
+    doc.text('SCAN AT COUNTER', qrMetaX, footerY + 14.2);
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(4.7);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Order: ${(qrInfo.orderId || '').slice(0, 18)}`, qrMetaX, footerY + 17.6);
+  doc.text(qrInfo.verifiedBy ? qrInfo.verifiedBy.slice(0, 22) : 'Gate Verification Pass', qrMetaX, footerY + 20.4);
+
+  // Right (~60mm): Authorized Signatory Box
+  const signBoxX = qrBoxX + qrBoxW + 2;
+  const signBoxW = tableX + tableW - signBoxX;
+  const signBoxH = 22;
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(signBoxX, footerY, signBoxW, signBoxH, 1.5, 1.5, 'FD');
+
+  doc.setFontSize(6.1);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(`For ${(company.legalBusinessName || 'HH MINERAL WATER').slice(0, 32)}`, signBoxX + 2.5, footerY + 4);
+
+  doc.setFontSize(5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100, 116, 139);
+  doc.text('Authorized Signatory / Bottling Unit', signBoxX + 2.5, footerY + 7.2);
+
+  doc.setDrawColor(71, 85, 105);
+  doc.setLineWidth(0.3);
+  doc.line(signBoxX + signBoxW - 32, footerY + 14.5, signBoxX + signBoxW - 2.5, footerY + 14.5);
+
+  doc.setFontSize(5.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(51, 65, 85);
+  doc.text('Authorized Signatory', signBoxX + signBoxW - 17.25, footerY + 17.5, { align: 'center' });
+
+  doc.setFontSize(4.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(148, 163, 184);
-  doc.text('This is a digitally verified GST Tax Invoice.', rightColX + 3, footerY + 18.5);
+  doc.text('Digitally verified GST Invoice.', signBoxX + 2.5, footerY + 19.5);
 
   // -------------------------------------------------------------
   // 7. BOTTOM FOOTER CENTERED NOTE
   // -------------------------------------------------------------
   doc.setDrawColor(226, 232, 240);
   doc.setLineWidth(0.25);
-  doc.line(tableX, footerY + 22, tableX + tableW, footerY + 22);
+  doc.line(tableX, footerY + 23.2, tableX + tableW, footerY + 23.2);
 
   doc.setFontSize(5.8);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(148, 163, 184);
-  doc.text("Thank you for choosing HH MINERAL WATER • Sourced for Purity, Hydrated with Nature's Best Minerals", pageWidth / 2, footerY + 25.5, { align: 'center' });
+  doc.text("Thank you for choosing HH MINERAL WATER • Sourced for Purity, Hydrated with Nature's Best Minerals", pageWidth / 2, footerY + 26.5, { align: 'center' });
 
   return doc;
 }
@@ -1992,10 +2141,11 @@ export function generateVectorInvoicePdf(
 export async function downloadInvoicePdf(
   invoice: Invoice,
   copyType: string = 'Original for Recipient',
-  _targetElementId?: string
+  _targetElementId?: string,
+  linkedOrder?: Order
 ): Promise<boolean> {
   try {
-    const doc = generateVectorInvoicePdf(invoice, copyType);
+    const doc = generateVectorInvoicePdf(invoice, copyType, linkedOrder);
     const sanitizedInvNum = (invoice.invoiceNumber || invoice.id || 'HH-INVOICE').replace(/[^a-zA-Z0-9_-]/g, '_');
     const filename = `HH_Tax_Invoice_${sanitizedInvNum}.pdf`;
 
@@ -2019,7 +2169,7 @@ export async function downloadInvoicePdf(
   } catch (err) {
     console.error('Failed to generate vector PDF:', err);
     // Absolute fallback: standalone HTML
-    downloadInvoiceHtml(invoice, copyType);
+    downloadInvoiceHtml(invoice, copyType, linkedOrder);
     return false;
   }
 }
